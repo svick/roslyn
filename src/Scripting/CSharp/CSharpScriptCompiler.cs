@@ -41,7 +41,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Scripting
             // TODO: report diagnostics
             diagnostics.Free();
 
-            var tree = SyntaxFactory.ParseSyntaxTree(script.Code, s_defaultOptions, script.Options.FilePath);
+            var tree = SyntaxFactory.ParseSyntaxTree(script.Code, s_defaultOptions, script.Options.FilePath, System.Text.Encoding.UTF8);
 
             string assemblyName, submissionTypeName;
             script.Builder.GenerateSubmissionId(out assemblyName, out submissionTypeName);
