@@ -393,6 +393,8 @@ namespace Microsoft.CodeAnalysis
             s_signature_HasThis_Void_String_DeprecationType_UInt32_String,
         };
 
+        private static readonly byte[][] s_signaturesOfExperimentalAttribute = { s_signature_HasThis_Void };
+
         private static readonly byte[][] s_signaturesOfNullableAttribute = { s_signature_HasThis_Void, s_signature_HasThis_Void_SzArray_Boolean };
         private static readonly byte[][] s_signaturesOfNullableOptOutForAssemblyAttribute = { s_signature_HasThis_Void_String };
         private static readonly byte[][] s_signaturesOfNullableOptOutAttribute = { s_signature_HasThis_Void_Boolean };
@@ -506,6 +508,7 @@ namespace Microsoft.CodeAnalysis
         internal static readonly AttributeDescription AssemblyConfigurationAttribute = new AttributeDescription("System.Reflection", "AssemblyConfigurationAttribute", s_signaturesOfAssemblyConfigurationAttribute);
         internal static readonly AttributeDescription AssemblyAlgorithmIdAttribute = new AttributeDescription("System.Reflection", "AssemblyAlgorithmIdAttribute", s_signaturesOfAssemblyAlgorithmIdAttribute);
         internal static readonly AttributeDescription DeprecatedAttribute = new AttributeDescription("Windows.Foundation.Metadata", "DeprecatedAttribute", s_signaturesOfDeprecatedAttribute);
+        internal static readonly AttributeDescription ExperimentalAttribute = new AttributeDescription("Windows.Foundation.Metadata", "ExperimentalAttribute", s_signaturesOfExperimentalAttribute);
         internal static readonly AttributeDescription NullableAttribute = new AttributeDescription("System.Runtime.CompilerServices", "NullableAttribute", s_signaturesOfNullableAttribute);
         internal static readonly AttributeDescription NullableOptOutForAssemblyAttribute = new AttributeDescription("System.Runtime.CompilerServices", "NullableOptOutForAssemblyAttribute", s_signaturesOfNullableOptOutForAssemblyAttribute);
         internal static readonly AttributeDescription NullableOptOutAttribute = new AttributeDescription("System.Runtime.CompilerServices", "NullableOptOutAttribute", s_signaturesOfNullableOptOutAttribute);

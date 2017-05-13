@@ -33,18 +33,17 @@ namespace Microsoft.CodeAnalysis.CSharp
             var symbol = (_symbolOrSymbolWithAnnotations as Symbol) ?? ((SymbolWithAnnotations)_symbolOrSymbolWithAnnotations).Symbol;
             symbol.ForceCompleteObsoleteAttribute();
 
-            if (symbol.ObsoleteState == ThreeState.True)
-            {
-                var inObsoleteContext = ObsoleteAttributeHelpers.GetObsoleteContextState(_containingSymbol, forceComplete: true);
-                Debug.Assert(inObsoleteContext != ThreeState.Unknown);
+            var kind = ObsoleteAttributeHelpers.GetObsoleteDiagnosticKind(_symbol, _containingSymbol, forceComplete: true);
+            Debug.Assert(kind != ObsoleteDiagnosticKind.Lazy);
+            Debug.Assert(kind != ObsoleteDiagnosticKind.LazyPotentiallySuppressed);
 
-                if (inObsoleteContext == ThreeState.False)
-                {
-                    return ObsoleteAttributeHelpers.CreateObsoleteDiagnostic(symbol, _binderFlags);
-                }
-            }
+            var info = (kind == ObsoleteDiagnosticKind.Diagnostic) ?
+                ObsoleteAttributeHelpers.CreateObsoleteDiagnostic(_symbol, _binderFlags) :
+                null;
 
-            return null;
+            // If this symbol is not obsolete or is in an obsolete context, we don't want to report any diagnostics.
+            // Therefore make this a Void diagnostic.
+            return info ?? CSDiagnosticInfo.VoidDiagnosticInfo;
         }
     }
 }
