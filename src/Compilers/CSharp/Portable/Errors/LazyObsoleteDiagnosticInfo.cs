@@ -33,12 +33,12 @@ namespace Microsoft.CodeAnalysis.CSharp
             var symbol = (_symbolOrSymbolWithAnnotations as Symbol) ?? ((SymbolWithAnnotations)_symbolOrSymbolWithAnnotations).Symbol;
             symbol.ForceCompleteObsoleteAttribute();
 
-            var kind = ObsoleteAttributeHelpers.GetObsoleteDiagnosticKind(_symbol, _containingSymbol, forceComplete: true);
+            var kind = ObsoleteAttributeHelpers.GetObsoleteDiagnosticKind(symbol, _containingSymbol, forceComplete: true);
             Debug.Assert(kind != ObsoleteDiagnosticKind.Lazy);
             Debug.Assert(kind != ObsoleteDiagnosticKind.LazyPotentiallySuppressed);
 
             var info = (kind == ObsoleteDiagnosticKind.Diagnostic) ?
-                ObsoleteAttributeHelpers.CreateObsoleteDiagnostic(_symbol, _binderFlags) :
+                ObsoleteAttributeHelpers.CreateObsoleteDiagnostic(symbol, _binderFlags) :
                 null;
 
             // If this symbol is not obsolete or is in an obsolete context, we don't want to report any diagnostics.
