@@ -1,5 +1,8 @@
 ﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
+// This file references the DesktopAnalyzerAssemblyLoader, which is only present in desktop
+#if NET46 || NET461
+
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -10,6 +13,7 @@ using System.Text;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Test.Utilities;
 using Roslyn.Test.Utilities;
+using Roslyn.Test.Utilities.Desktop;
 using Roslyn.Utilities;
 using Xunit;
 
@@ -66,7 +70,7 @@ namespace Microsoft.CodeAnalysis.UnitTests
 
     public class AnalyzerFileReferenceTests : TestBase
     {
-        private static readonly SimpleAnalyzerAssemblyLoader s_analyzerLoader = new SimpleAnalyzerAssemblyLoader();
+        private static readonly DesktopAnalyzerAssemblyLoader s_analyzerLoader = new DesktopAnalyzerAssemblyLoader();
 
         public static AnalyzerFileReference CreateAnalyzerFileReference(string fullPath)
         {
@@ -180,8 +184,9 @@ namespace Microsoft.CodeAnalysis.UnitTests
         public void TestAnalyzerLoading()
         {
             var dir = Temp.CreateDirectory();
+            dir.CopyFile(typeof(AppDomainUtils).Assembly.Location);
             var test = dir.CopyFile(typeof(FromFileLoader).Assembly.Location);
-            var analyzerFile = TestHelpers.CreateCSharpAnalyzerAssemblyWithTestAnalyzer(dir, "MyAnalyzer");
+            var analyzerFile = DesktopTestHelpers.CreateCSharpAnalyzerAssemblyWithTestAnalyzer(dir, "MyAnalyzer");
             var loadDomain = AppDomainUtils.Create("AnalyzerTestDomain", basePath: dir.Path);
             try
             {
@@ -216,17 +221,19 @@ public class TestAnalyzer : DiagnosticAnalyzer
 
             var dir = Temp.CreateDirectory();
 
-            var metadata = dir.CopyFile(typeof(System.Reflection.Metadata.MetadataReader).Assembly.Location);
+            dir.CopyFile(typeof(System.Reflection.Metadata.MetadataReader).Assembly.Location);
+            dir.CopyFile(typeof(AppDomainUtils).Assembly.Location);
             var immutable = dir.CopyFile(typeof(ImmutableArray).Assembly.Location);
             var analyzer = dir.CopyFile(typeof(DiagnosticAnalyzer).Assembly.Location);
             var test = dir.CopyFile(typeof(FromFileLoader).Assembly.Location);
+            dir.CopyFile(Path.Combine(Path.GetDirectoryName(typeof(CSharp.CSharpCompilation).Assembly.Location), "System.IO.FileSystem.dll"));
 
             var analyzerCompilation = CSharp.CSharpCompilation.Create(
                 "MyAnalyzer",
                 new SyntaxTree[] { CSharp.SyntaxFactory.ParseSyntaxTree(analyzerSource) },
                 new MetadataReference[]
                 {
-                    SystemRuntimePP7Ref,
+                    TestReferences.NetStandard13.SystemRuntime,
                     MetadataReference.CreateFromFile(immutable.Path),
                     MetadataReference.CreateFromFile(analyzer.Path)
                 },
@@ -259,10 +266,10 @@ public class TestAnalyzer : DiagnosticAnalyzer
         public void BadAnalyzerReference_DisplayName()
         {
             var directory = Temp.CreateDirectory();
-            var textFile = directory.CreateFile("Foo.txt").WriteAllText("I am the very model of a modern major general.");
+            var textFile = directory.CreateFile("Goo.txt").WriteAllText("I am the very model of a modern major general.");
             AnalyzerFileReference reference = CreateAnalyzerFileReference(textFile.Path);
 
-            Assert.Equal(expected: "Foo", actual: reference.Display);
+            Assert.Equal(expected: "Goo", actual: reference.Display);
         }
 
         [Fact]
@@ -296,10 +303,10 @@ public class TestAnalyzer : DiagnosticAnalyzer
         public void BadAnalyzerReference_Id()
         {
             var directory = Temp.CreateDirectory();
-            var textFile = directory.CreateFile("Foo.txt").WriteAllText("I am the very model of a modern major general.");
+            var textFile = directory.CreateFile("Goo.txt").WriteAllText("I am the very model of a modern major general.");
             AnalyzerFileReference reference = CreateAnalyzerFileReference(textFile.Path);
 
-            Assert.Equal(expected: "Foo", actual: reference.Id);
+            Assert.Equal(expected: "Goo", actual: reference.Id);
         }
 
         [Fact]
@@ -388,3 +395,5 @@ public class TestAnalyzer : DiagnosticAnalyzer
         public override void Initialize(AnalysisContext context) { throw new NotImplementedException(); }
     }
 }
+
+#endif

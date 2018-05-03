@@ -11,23 +11,25 @@ using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Diagnostics.EngineV2;
+using Microsoft.CodeAnalysis.Editor.UnitTests.Utilities;
 using Microsoft.CodeAnalysis.Editor.UnitTests.Workspaces;
 using Microsoft.CodeAnalysis.Host;
 using Microsoft.CodeAnalysis.Host.Mef;
+using Microsoft.CodeAnalysis.Test.Utilities;
 using Microsoft.CodeAnalysis.Text;
 using Roslyn.Test.Utilities;
 using Roslyn.Utilities;
 using Xunit;
-using Traits = Microsoft.CodeAnalysis.Test.Utilities.Traits;
 
 namespace Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics
 {
+    [UseExportProvider]
     public class DiagnosticDataSerializerTests : TestBase
     {
         [Fact, Trait(Traits.Feature, Traits.Features.Diagnostics)]
         public async Task SerializationTest_Document()
         {
-            using (var workspace = new TestWorkspace(TestExportProvider.ExportProviderWithCSharpAndVisualBasic, workspaceKind: "DiagnosticDataSerializerTest"))
+            using (var workspace = new TestWorkspace(EditorServicesUtil.ExportProvider, workspaceKind: "DiagnosticDataSerializerTest"))
             {
                 var document = workspace.CurrentSolution.AddProject("TestProject", "TestProject", LanguageNames.CSharp).AddDocument("TestDocument", "");
 
@@ -58,19 +60,19 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics
                 var version = VersionStamp.Create(utcTime.AddDays(1));
 
                 var key = "document";
-                var serializer = new DiagnosticDataSerializer(analyzerVersion, version);
+                var serializer = new CodeAnalysis.Workspaces.Diagnostics.DiagnosticDataSerializer(analyzerVersion, version);
 
                 Assert.True(await serializer.SerializeAsync(document, key, diagnostics, CancellationToken.None).ConfigureAwait(false));
                 var recovered = await serializer.DeserializeAsync(document, key, CancellationToken.None);
 
-                AssertDiagnostics(diagnostics, recovered);
+                AssertDiagnostics(diagnostics, recovered.Value);
             }
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Diagnostics)]
         public async Task SerializationTest_Project()
         {
-            using (var workspace = new TestWorkspace(TestExportProvider.ExportProviderWithCSharpAndVisualBasic, workspaceKind: "DiagnosticDataSerializerTest"))
+            using (var workspace = new TestWorkspace(EditorServicesUtil.ExportProvider, workspaceKind: "DiagnosticDataSerializerTest"))
             {
                 var document = workspace.CurrentSolution.AddProject("TestProject", "TestProject", LanguageNames.CSharp).AddDocument("TestDocument", "");
 
@@ -98,12 +100,12 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics
                 var version = VersionStamp.Create(utcTime.AddDays(1));
 
                 var key = "project";
-                var serializer = new DiagnosticDataSerializer(analyzerVersion, version);
+                var serializer = new CodeAnalysis.Workspaces.Diagnostics.DiagnosticDataSerializer(analyzerVersion, version);
 
                 Assert.True(await serializer.SerializeAsync(document, key, diagnostics, CancellationToken.None).ConfigureAwait(false));
                 var recovered = await serializer.DeserializeAsync(document, key, CancellationToken.None);
 
-                AssertDiagnostics(diagnostics, recovered);
+                AssertDiagnostics(diagnostics, recovered.Value);
             }
         }
 

@@ -1,4 +1,4 @@
-' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+﻿' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
 Imports System.Threading.Tasks
 Imports Microsoft.CodeAnalysis
@@ -6,10 +6,11 @@ Imports Microsoft.CodeAnalysis.Completion
 Imports Microsoft.CodeAnalysis.Editor.Shared.Options
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.IntelliSense
 Imports Microsoft.CodeAnalysis.Snippets
-Imports Microsoft.CodeAnalysis.Text
+Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Roslyn.Test.Utilities
 
 Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.Completion
+    <[UseExportProvider]>
     Public Class CSharpCompletionSnippetNoteTests
         Private _markup As XElement = <document>
                                           <![CDATA[using System;
@@ -28,7 +29,29 @@ class C
                 Await state.AssertCompletionSession()
                 Await state.AssertSelectedCompletionItem(description:="title" & vbCrLf &
                     "description" & vbCrLf &
-                    String.Format(FeaturesResources.NoteTabTwiceToInsertTheSnippet, "interface"))
+                    String.Format(FeaturesResources.Note_colon_Tab_twice_to_insert_the_0_snippet, "interface"))
+            End Using
+        End Function
+
+        <WpfFact, Trait(Traits.Feature, Traits.Features.Completion)>
+        Public Async Function ColonDoesntTriggerSnippetInTupleLiteral() As Task
+            Using state = CreateCSharpSnippetExpansionNoteTestState(_markup, "interface")
+                state.SendTypeChars("var t = (interfac")
+                Await state.AssertCompletionSession()
+                Await state.AssertSelectedCompletionItem(displayText:="interface", isHardSelected:=True)
+                state.SendTypeChars(":")
+                Assert.Contains("(interfac:", state.GetLineTextFromCaretPosition(), StringComparison.Ordinal)
+            End Using
+        End Function
+
+        <WpfFact, Trait(Traits.Feature, Traits.Features.Completion)>
+        Public Async Function ColonDoesntTriggerSnippetInTupleLiteralAfterComma() As Task
+            Using state = CreateCSharpSnippetExpansionNoteTestState(_markup, "interface")
+                state.SendTypeChars("var t = (1, interfac")
+                Await state.AssertCompletionSession()
+                Await state.AssertSelectedCompletionItem(displayText:="interface", isHardSelected:=True)
+                state.SendTypeChars(":")
+                Assert.Contains("(1, interfac:", state.GetLineTextFromCaretPosition(), StringComparison.Ordinal)
             End Using
         End Function
 
@@ -38,8 +61,8 @@ class C
             Using state = CreateCSharpSnippetExpansionNoteTestState(_markup, "intErfaCE")
                 state.SendTypeChars("interfac")
                 Await state.AssertCompletionSession()
-                Await state.AssertSelectedCompletionItem(description:=$"{String.Format(FeaturesResources.Keyword, "interface")}
-{String.Format(FeaturesResources.NoteTabTwiceToInsertTheSnippet, "interface")}")
+                Await state.AssertSelectedCompletionItem(description:=$"{String.Format(FeaturesResources._0_Keyword, "interface")}
+{String.Format(FeaturesResources.Note_colon_Tab_twice_to_insert_the_0_snippet, "interface")}")
             End Using
         End Function
 
@@ -51,7 +74,7 @@ class C
                 Await state.AssertCompletionSession()
                 Await state.AssertSelectedCompletionItem(description:="title" & vbCrLf &
                     "description" & vbCrLf &
-                    String.Format(FeaturesResources.NoteTabTwiceToInsertTheSnippet, "interfac"))
+                    String.Format(FeaturesResources.Note_colon_Tab_twice_to_insert_the_0_snippet, "interfac"))
             End Using
         End Sub
 
@@ -61,7 +84,7 @@ class C
             Using state = CreateCSharpSnippetExpansionNoteTestState(_markup, "interfaces")
                 state.SendTypeChars("interfac")
                 Await state.AssertCompletionSession()
-                Await state.AssertSelectedCompletionItem(description:=String.Format(FeaturesResources.Keyword, "interface"))
+                Await state.AssertSelectedCompletionItem(description:=String.Format(FeaturesResources._0_Keyword, "interface"))
             End Using
         End Sub
 
@@ -72,7 +95,7 @@ class C
 
                 state.SendTypeChars("DisplayTex")
                 Await state.AssertCompletionSession()
-                Await state.AssertSelectedCompletionItem(description:=String.Format(FeaturesResources.NoteTabTwiceToInsertTheSnippet, "InsertionText"))
+                Await state.AssertSelectedCompletionItem(description:=String.Format(FeaturesResources.Note_colon_Tab_twice_to_insert_the_0_snippet, "InsertionText"))
             End Using
         End Sub
 
@@ -87,8 +110,7 @@ class C
 
             Using state = TestState.CreateTestStateFromWorkspace(
                 workspaceXml,
-                New CompletionListProvider() {New MockCompletionProvider(New TextSpan(31, 10))},
-                Nothing,
+                New CompletionProvider() {New MockCompletionProvider()},
                 New List(Of Type) From {GetType(TestCSharpSnippetInfoService)},
                 WorkspaceKind.Interactive)
 
@@ -99,16 +121,17 @@ class C
 
                 state.SendTypeChars("for")
                 Await state.AssertCompletionSession()
-                Await state.AssertSelectedCompletionItem(description:=String.Format(FeaturesResources.Keyword, "for"))
+                Await state.AssertSelectedCompletionItem(
+                    description:=String.Format(FeaturesResources._0_Keyword, "for") & vbCrLf &
+                                 String.Format(FeaturesResources.Note_colon_Tab_twice_to_insert_the_0_snippet, "for"))
             End Using
         End Function
 
         Private Function CreateCSharpSnippetExpansionNoteTestState(xElement As XElement, ParamArray snippetShortcuts As String()) As TestState
             Dim state = TestState.CreateCSharpTestState(
                 xElement,
-                New CompletionListProvider() {New MockCompletionProvider(New TextSpan(31, 10))},
-                Nothing,
-                New List(Of Type) From {GetType(TestCSharpSnippetInfoService)})
+                New CompletionProvider() {New MockCompletionProvider()},
+                extraExportedTypes:=New List(Of Type) From {GetType(TestCSharpSnippetInfoService)})
 
             Dim testSnippetInfoService = DirectCast(state.Workspace.Services.GetLanguageServices(LanguageNames.CSharp).GetService(Of ISnippetInfoService)(), TestCSharpSnippetInfoService)
             testSnippetInfoService.SetSnippetShortcuts(snippetShortcuts)

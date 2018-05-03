@@ -6,13 +6,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.CodeStyle;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.ErrorReporting;
+using Microsoft.CodeAnalysis.Options;
 using Microsoft.CodeAnalysis.Shared.Extensions;
 using Microsoft.CodeAnalysis.Simplification;
-using Microsoft.CodeAnalysis.Text;
 using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.CSharp.Extensions
@@ -25,10 +25,58 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             return typeSymbol.Accept(ExpressionSyntaxGeneratorVisitor.Instance).WithAdditionalAnnotations(Simplifier.Annotation);
         }
 
-        public static TypeSyntax GenerateTypeSyntax(
-            this ITypeSymbol typeSymbol)
+        public static NameSyntax GenerateNameSyntax(
+            this INamespaceOrTypeSymbol symbol, bool allowVar = true)
         {
-            return typeSymbol.Accept(TypeSyntaxGeneratorVisitor.Instance).WithAdditionalAnnotations(Simplifier.Annotation);
+            return (NameSyntax)GenerateTypeSyntax(symbol, nameSyntax: true, allowVar: allowVar);
+        }
+
+        public static TypeSyntax GenerateTypeSyntax(
+            this INamespaceOrTypeSymbol symbol, bool allowVar = true)
+        {
+            return GenerateTypeSyntax(symbol, nameSyntax: false, allowVar: allowVar);
+        }
+
+        private static TypeSyntax GenerateTypeSyntax(
+            INamespaceOrTypeSymbol symbol, bool nameSyntax, bool allowVar = true)
+        {
+            if (symbol is ITypeSymbol type && type.ContainsAnonymousType())
+            {
+                // something with an anonymous type can only be represented with 'var', regardless
+                // of what the user's preferences might be.
+                return SyntaxFactory.IdentifierName("var");
+            }
+
+            var syntax = symbol.Accept(TypeSyntaxGeneratorVisitor.Create(nameSyntax))
+                               .WithAdditionalAnnotations(Simplifier.Annotation);
+
+            if (!allowVar)
+            {
+                syntax = syntax.WithAdditionalAnnotations(DoNotAllowVarAnnotation.Annotation);
+            }
+
+            return syntax;
+        }
+
+        public static TypeSyntax GenerateRefTypeSyntax(
+            this INamespaceOrTypeSymbol symbol)
+        {
+            var underlyingType = GenerateTypeSyntax(symbol)
+                .WithPrependedLeadingTrivia(SyntaxFactory.ElasticMarker)
+                .WithAdditionalAnnotations(Simplifier.Annotation);
+            var refKeyword = SyntaxFactory.Token(SyntaxKind.RefKeyword);
+            return SyntaxFactory.RefType(refKeyword, underlyingType);
+        }
+
+        public static TypeSyntax GenerateRefReadOnlyTypeSyntax(
+            this INamespaceOrTypeSymbol symbol)
+        {
+            var underlyingType = GenerateTypeSyntax(symbol)
+                .WithPrependedLeadingTrivia(SyntaxFactory.ElasticMarker)
+                .WithAdditionalAnnotations(Simplifier.Annotation);
+            var refKeyword = SyntaxFactory.Token(SyntaxKind.RefKeyword);
+            var readOnlyKeyword = SyntaxFactory.Token(SyntaxKind.ReadOnlyKeyword);
+            return SyntaxFactory.RefType(refKeyword, readOnlyKeyword, underlyingType);
         }
 
         public static bool ContainingTypesOrSelfHasUnsafeKeyword(this ITypeSymbol containingType)
@@ -86,6 +134,31 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                 ? ((CompilationUnitSyntax)root).Usings.Concat(namespaceUsings)
                 : namespaceUsings;
             return allUsings.Where(u => u.Alias != null);
+        }
+
+        public static bool IsIntrinsicType(this ITypeSymbol typeSymbol)
+        {
+            switch (typeSymbol.SpecialType)
+            {
+                case SpecialType.System_Boolean:
+                case SpecialType.System_Char:
+                case SpecialType.System_SByte:
+                case SpecialType.System_Int16:
+                case SpecialType.System_Int32:
+                case SpecialType.System_Int64:
+                case SpecialType.System_Byte:
+                case SpecialType.System_UInt16:
+                case SpecialType.System_UInt32:
+                case SpecialType.System_UInt64:
+                case SpecialType.System_Single:
+                case SpecialType.System_Double:
+                // NOTE: VB treats System.DateTime as an intrinsic, while C# does not, see "predeftype.h"
+                //case SpecialType.System_DateTime:
+                case SpecialType.System_Decimal:
+                    return true;
+                default:
+                    return false;
+            }
         }
     }
 }

@@ -301,7 +301,7 @@ class Hello
         public void MutexStopsServerStarting()
         {
             var pipeName = Guid.NewGuid().ToString("N");
-            var mutexName = DesktopBuildClient.GetServerMutexName(pipeName);
+            var mutexName = BuildServerConnection.GetServerMutexName(pipeName);
 
             bool holdsMutex;
             using (var mutex = new Mutex(initiallyOwned: true,
@@ -326,7 +326,7 @@ class Hello
         public void MutexAcquiredWhenRunningServer()
         {
             var pipeName = Guid.NewGuid().ToString("N");
-            var mutexName = DesktopBuildClient.GetServerMutexName(pipeName);
+            var mutexName = BuildServerConnection.GetServerMutexName(pipeName);
             var host = new Mock<IClientConnectionHost>(MockBehavior.Strict);
             host
                 .Setup(x => x.CreateListenTask(It.IsAny<CancellationToken>()))
@@ -383,7 +383,7 @@ class Hello
         /// A shutdown request should not abort an existing compilation.  It should be allowed to run to 
         /// completion.
         /// </summary>
-        [Fact]
+        [ConditionalFact(typeof(DesktopOnly))]
         public async Task ShutdownDoesNotAbortCompilation()
         {
             var host = new TestableCompilerServerHost();
@@ -420,7 +420,7 @@ class Hello
         /// Multiple clients should be able to send shutdown requests to the server.
         /// </summary>
         /// <returns></returns>
-        [Fact]
+        [ConditionalFact(typeof(DesktopOnly))]
         public async Task ShutdownRepeated()
         {
             var host = new TestableCompilerServerHost();
@@ -458,7 +458,7 @@ class Hello
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(DesktopOnly))]
         public async Task CancelWillCancelCompilation()
         {
             var host = new TestableCompilerServerHost();

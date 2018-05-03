@@ -2,10 +2,12 @@
 
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.Completion;
+using Microsoft.CodeAnalysis.Completion.Providers;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Completion.Providers;
 using Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Completion.CompletionProviders;
 using Microsoft.CodeAnalysis.Editor.UnitTests.Workspaces;
+using Microsoft.CodeAnalysis.Test.Utilities;
 using Roslyn.Test.Utilities;
 using Xunit;
 
@@ -17,7 +19,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Completion.CompletionSe
         {
         }
 
-        internal override CompletionListProvider CreateCompletionProvider()
+        internal override CompletionProvider CreateCompletionProvider()
         {
             return new SymbolCompletionProvider();
         }
@@ -369,18 +371,312 @@ class CL {}";
             await VerifyItemExistsAsync(AddUsingDirectives("using System;", content), @"System");
         }
 
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
-        public async Task NamespaceName1()
+        public async Task NamespaceName_EmptyNameSpan_TopLevel()
         {
-            await VerifyItemIsAbsentAsync(AddUsingDirectives("using System;", @"namespace $$"), @"String");
-            await VerifyItemIsAbsentAsync(AddUsingDirectives("using System;", @"namespace $$"), @"System");
+            var source = @"namespace $$ { }";
+
+            await VerifyItemExistsAsync(source, "System", sourceCodeKind: SourceCodeKind.Regular);
         }
 
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
-        public async Task NamespaceName2()
+        public async Task NamespaceName_EmptyNameSpan_Nested()
         {
-            await VerifyItemIsAbsentAsync(@"namespace $$", @"String");
-            await VerifyItemIsAbsentAsync(@"namespace $$", @"System");
+            var source = @";
+namespace System
+{
+    namespace $$ { }
+}";
+
+            await VerifyItemExistsAsync(source, "Runtime", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_TopLevelNoPeers()
+        {
+            var source = @"using System;
+
+namespace $$";
+
+            await VerifyItemExistsAsync(source, "System", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "String", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_TopLevelWithPeer()
+        {
+            var source = @"
+namespace A { }
+
+namespace $$";
+
+            await VerifyItemExistsAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_NestedWithNoPeers()
+        {
+            var source = @"
+namespace A
+{
+    namespace $$
+}";
+
+            await VerifyNoItemsExistAsync(source, sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_NestedWithPeer()
+        {
+            var source = @"
+namespace A
+{
+    namespace B { }
+
+    namespace $$
+}";
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemExistsAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_ExcludesCurrentDeclaration()
+        {
+            var source = @"namespace N$$S";
+
+            await VerifyItemIsAbsentAsync(source, "NS", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_WithNested()
+        {
+            var source = @"
+namespace A
+{
+    namespace $$
+    {
+        namespace B { }
+    }
+}";
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_WithNestedAndMatchingPeer()
+        {
+            var source = @"
+namespace A.B { }
+
+namespace A
+{
+    namespace $$
+    {
+        namespace B { }
+    }
+}";
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemExistsAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_InnerCompletionPosition()
+        {
+            var source = @"namespace Sys$$tem { }";
+
+            await VerifyItemExistsAsync(source, "System", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "Runtime", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Unqualified_IncompleteDeclaration()
+        {
+            var source = @"
+namespace A
+{
+    namespace B
+    {
+        namespace $$
+
+        namespace C1 { }
+    }
+
+    namespace B.C2 { }
+}
+
+namespace A.B.C3 { }";
+
+
+            // Ideally, all the C* namespaces would be recommended but, because of how the parser
+            // recovers from the missing braces, they end up with the following qualified names...
+            //
+            //     C1 => A.B.?.C1
+            //     C2 => A.B.B.C2
+            //     C3 => A.A.B.C3
+            //
+            // ...none of which are found by the current algorithm.
+            await VerifyItemIsAbsentAsync(source, "C1", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "C2", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "C3", sourceCodeKind: SourceCodeKind.Regular);
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+
+            // Because of the above, B does end up in the completion list
+            // since A.B.B appears to be a peer of the new declaration
+            await VerifyItemExistsAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Qualified_NoPeers()
+        {
+            var source = @"namespace A.$$";
+
+            await VerifyNoItemsExistAsync(source, sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Qualified_TopLevelWithPeer()
+        {
+            var source = @"
+namespace A.B { }
+
+namespace A.$$";
+
+            await VerifyItemExistsAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Qualified_NestedWithPeer()
+        {
+            var source = @"
+namespace A
+{
+    namespace B.C { }
+
+    namespace B.$$
+}";
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemExistsAsync(source, "C", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Qualified_WithNested()
+        {
+            var source = @"
+namespace A.$$
+{
+    namespace B { }
+}
+";
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Qualified_WithNestedAndMatchingPeer()
+        {
+            var source = @"
+namespace A.B { }
+
+namespace A.$$
+{
+    namespace B { }
+}
+";
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemExistsAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Qualified_InnerCompletionPosition()
+        {
+            var source = @"namespace Sys$$tem.Runtime { }";
+
+            await VerifyItemExistsAsync(source, "System", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "Runtime", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_OnKeyword()
+        {
+            var source = @"name$$space System { }";
+
+            await VerifyItemIsAbsentAsync(source, "System", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_OnNestedKeyword()
+        {
+            var source = @"
+namespace System
+{
+    name$$space Runtime { }
+}";
+
+            await VerifyItemIsAbsentAsync(source, "System", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "Runtime", sourceCodeKind: SourceCodeKind.Regular);
+        }
+
+        [WorkItem(7213, "https://github.com/dotnet/roslyn/issues/7213")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task NamespaceName_Qualified_IncompleteDeclaration()
+        {
+            var source = @"
+namespace A
+{
+    namespace B
+    {
+        namespace C.$$
+
+        namespace C.D1 { }
+    }
+
+    namespace B.C.D2 { }
+}
+
+namespace A.B.C.D3 { }";
+
+            await VerifyItemIsAbsentAsync(source, "A", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "B", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "C", sourceCodeKind: SourceCodeKind.Regular);
+
+            // Ideally, all the D* namespaces would be recommended but, because of how the parser
+            // recovers from the missing braces, they end up with the following qualified names...
+            //
+            //     D1 => A.B.C.C.?.D1
+            //     D2 => A.B.B.C.D2
+            //     D3 => A.A.B.C.D3
+            //
+            // ...none of which are found by the current algorithm.
+            await VerifyItemIsAbsentAsync(source, "D1", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "D2", sourceCodeKind: SourceCodeKind.Regular);
+            await VerifyItemIsAbsentAsync(source, "D3", sourceCodeKind: SourceCodeKind.Regular);
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -968,9 +1264,15 @@ $$";
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task SwitchLabelCase()
         {
-            var content = @"switch(i)
-    {
-        case $$";
+            var content = @"switch(i) { case $$";
+            await VerifyItemExistsAsync(AddUsingDirectives("using System;", AddInsideMethod(content)), @"String");
+            await VerifyItemExistsAsync(AddUsingDirectives("using System;", AddInsideMethod(content)), @"System");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task SwitchPatternLabelCase()
+        {
+            var content = @"switch(i) { case $$ when";
             await VerifyItemExistsAsync(AddUsingDirectives("using System;", AddInsideMethod(content)), @"String");
             await VerifyItemExistsAsync(AddUsingDirectives("using System;", AddInsideMethod(content)), @"System");
         }
@@ -1128,7 +1430,7 @@ $$";
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task Locals()
         {
-            await VerifyItemExistsAsync(@"class c { void M() { string foo; $$", "foo");
+            await VerifyItemExistsAsync(@"class c { void M() { string goo; $$", "goo");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -1146,7 +1448,7 @@ $$";
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task NoCompletionForUnboundTypes()
         {
-            await VerifyItemIsAbsentAsync(AddUsingDirectives("using System;", @"class c { void M() { foo.$$"), "Equals");
+            await VerifyItemIsAbsentAsync(AddUsingDirectives("using System;", @"class c { void M() { goo.$$"), "Equals");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -1280,7 +1582,7 @@ $$";
 class A
 {
     private void Hidden() { }
-    protected void Foo() { }
+    protected void Goo() { }
 }
 class B : A
 {
@@ -1291,7 +1593,7 @@ class B : A
 }
 ";
             await VerifyItemIsAbsentAsync(markup, "Hidden");
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
         }
 
         [WorkItem(539812, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/539812")]
@@ -1302,7 +1604,7 @@ class B : A
 class A
 {
     private void Hidden() { }
-    protected void Foo() { }
+    protected void Goo() { }
 }
 class B : A
 {
@@ -1313,7 +1615,7 @@ class B : A
 }
 ";
             await VerifyItemIsAbsentAsync(markup, "Hidden");
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
         }
 
         [WorkItem(539812, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/539812")]
@@ -1324,7 +1626,7 @@ class B : A
 class A
 {
     private void Hidden() { }
-    protected void Foo() { }
+    protected void Goo() { }
 }
 class B : A
 {
@@ -1335,7 +1637,7 @@ class B : A
 }
 ";
             await VerifyItemIsAbsentAsync(markup, "Hidden");
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
             await VerifyItemIsAbsentAsync(markup, "Bar");
         }
 
@@ -1347,7 +1649,7 @@ class B : A
 class A
 {
     private static void Hidden() { }
-    protected static void Foo() { }
+    protected static void Goo() { }
 }
 class B : A
 {
@@ -1358,7 +1660,7 @@ class B : A
 }
 ";
             await VerifyItemIsAbsentAsync(markup, "Hidden");
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
         }
 
         [WorkItem(539812, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/539812")]
@@ -1369,7 +1671,7 @@ class B : A
 class A
 {
     private static void Hidden() { }
-    protected static void Foo() { }
+    protected static void Goo() { }
 }
 class B : A
 {
@@ -1380,7 +1682,7 @@ class B : A
 }
 ";
             await VerifyItemIsAbsentAsync(markup, "Hidden");
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
         }
 
         [WorkItem(539812, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/539812")]
@@ -1391,7 +1693,7 @@ class B : A
 class A
 {
      private static void Hidden() { }
-     protected static void Foo() { }
+     protected static void Goo() { }
 }
 class B : A
 {
@@ -1402,7 +1704,7 @@ class B : A
 }
 ";
             await VerifyItemIsAbsentAsync(markup, "Hidden");
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
         }
 
         [WorkItem(539812, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/539812")]
@@ -1413,10 +1715,10 @@ class B : A
 class A
 {
      private static void HiddenStatic() { }
-     protected static void FooStatic() { }
+     protected static void GooStatic() { }
 
      private void HiddenInstance() { }
-     protected void FooInstance() { }
+     protected void GooInstance() { }
 }
 class B : A
 {
@@ -1427,9 +1729,9 @@ class B : A
 }
 ";
             await VerifyItemIsAbsentAsync(markup, "HiddenStatic");
-            await VerifyItemExistsAsync(markup, "FooStatic");
+            await VerifyItemExistsAsync(markup, "GooStatic");
             await VerifyItemIsAbsentAsync(markup, "HiddenInstance");
-            await VerifyItemExistsAsync(markup, "FooInstance");
+            await VerifyItemExistsAsync(markup, "GooInstance");
         }
 
         [WorkItem(540155, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/540155")]
@@ -1597,36 +1899,314 @@ class C<T, R>
 
         [WorkItem(540212, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/540212")]
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
-        public async Task AfterRefInLambda()
+        public async Task AfterRefInLambda_TypeOnly()
         {
             var markup = @"
 using System;
 class C
 {
-    void M()
+    void M(String parameter)
     {
         Func<int, int> f = (ref $$
     }
 }
 ";
             await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
         }
 
         [WorkItem(540212, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/540212")]
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
-        public async Task AfterOutInLambda()
+        public async Task AfterOutInLambda_TypeOnly()
         {
             var markup = @"
 using System;
 class C
 {
-    void M()
+    void M(String parameter)
     {
         Func<int, int> f = (out $$
     }
 }
 ";
             await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(24326, "https://github.com/dotnet/roslyn/issues/24326")]
+        public async Task AfterInInLambda_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        Func<int, int> f = (in $$
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterRefInMethodDeclaration_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    String field;
+    void M(ref $$)
+    {
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "field");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterOutInMethodDeclaration_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    String field;
+    void M(out $$)
+    {
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "field");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(24326, "https://github.com/dotnet/roslyn/issues/24326")]
+        public async Task AfterInInMethodDeclaration_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    String field;
+    void M(in $$)
+    {
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "field");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterRefInInvocation_TypeAndVariable()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(ref String parameter)
+    {
+        M(ref $$
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemExistsAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterOutInInvocation_TypeAndVariable()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(out String parameter)
+    {
+        M(out $$
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemExistsAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(24326, "https://github.com/dotnet/roslyn/issues/24326")]
+        public async Task AfterInInInvocation_TypeAndVariable()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(in String parameter)
+    {
+        M(in $$
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemExistsAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(25569, "https://github.com/dotnet/roslyn/issues/25569")]
+        public async Task AfterRefExpression_TypeAndVariable()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        ref var x = ref $$
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemExistsAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(25569, "https://github.com/dotnet/roslyn/issues/25569")]
+        public async Task AfterRefInStatementContext_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        ref $$
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(25569, "https://github.com/dotnet/roslyn/issues/25569")]
+        public async Task AfterRefReadonlyInStatementContext_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        ref readonly $$
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterRefLocalDeclaration_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        ref $$ int local;
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterRefReadonlyLocalDeclaration_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        ref readonly $$ int local;
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterRefLocalFunction_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        ref $$ int Function();
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AfterRefReadonlyLocalFunction_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    void M(String parameter)
+    {
+        ref readonly $$ int Function();
+    }
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "parameter");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(25569, "https://github.com/dotnet/roslyn/issues/25569")]
+        public async Task AfterRefInMemberContext_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    String field;
+    ref $$
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "field");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        [WorkItem(25569, "https://github.com/dotnet/roslyn/issues/25569")]
+        public async Task AfterRefReadonlyInMemberContext_TypeOnly()
+        {
+            var markup = @"
+using System;
+class C
+{
+    String field;
+    ref readonly $$
+}
+";
+            await VerifyItemExistsAsync(markup, "String");
+            await VerifyItemIsAbsentAsync(markup, "field");
         }
 
         [WorkItem(539217, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/539217")]
@@ -1753,7 +2333,7 @@ using System.Linq;
 
 class Program
 {
-    public void foo() {
+    public void goo() {
         int i = 5;
         i.$$
         List<string> ml = new List<string>();
@@ -1761,6 +2341,48 @@ class Program
 }";
 
             await VerifyItemExistsAsync(markup, "CompareTo");
+        }
+
+        [WorkItem(21596, "https://github.com/dotnet/roslyn/issues/21596")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task AmbiguityBetweenExpressionAndLocalFunctionReturnType()
+        {
+            var markup = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        AwaitTest test = new AwaitTest();
+        test.Test1().Wait();
+    }
+}
+
+class AwaitTest
+{
+    List<string> stringList = new List<string>();
+
+    public async Task<bool> Test1()
+    {
+        stringList.$$
+
+        await Test2();
+
+        return true;
+    }
+
+    public async Task<bool> Test2()
+    {
+        return true;
+    }
+}";
+
+            await VerifyItemExistsAsync(markup, "Add");
         }
 
         [WorkItem(540750, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/540750")]
@@ -1924,7 +2546,7 @@ class Program
             default:
                 goto $$";
 
-            await VerifyItemExistsAsync(markup, "default:");
+            await VerifyItemExistsAsync(markup, "default");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -1935,11 +2557,11 @@ class Program
 {
     static void Main()
     {
-    Foo:
-        int Foo;
+    Goo:
+        int Goo;
         goto $$";
 
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -1950,11 +2572,11 @@ class Program
 {
     static void Main()
     {
-    Foo:
-        int Foo;
-        goto Foo $$";
+    Goo:
+        int Goo;
+        goto Goo $$";
 
-            await VerifyItemIsAbsentAsync(markup, "Foo");
+            await VerifyItemIsAbsentAsync(markup, "Goo");
         }
 
         [WorkItem(542225, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542225")]
@@ -2063,9 +2685,9 @@ class C { }";
         public async Task NamespaceAliasInAttributeName2()
         {
             var markup = @"
-using Alias = Foo;
+using Alias = Goo;
 
-namespace Foo { }
+namespace Goo { }
 
 [$$
 class C { }";
@@ -2078,9 +2700,9 @@ class C { }";
         public async Task NamespaceAliasInAttributeName3()
         {
             var markup = @"
-using Alias = Foo;
+using Alias = Goo;
 
-namespace Foo { class A : System.Attribute { } }
+namespace Goo { class A : System.Attribute { } }
 
 [$$
 class C { }";
@@ -2289,11 +2911,41 @@ class P
 {
     void M()
     {
-        var src = new string[] { ""Foo"", ""Bar"" };
+        var src = new string[] { ""Goo"", ""Bar"" };
         var q = from x in src
                 select x.$$";
 
             await VerifyItemExistsAsync(markup, "Length");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task ConstantsInIsExpression()
+        {
+            var markup = @"
+class C
+{
+    public const int MAX_SIZE = 10;
+    void M()
+    {
+        int i = 10;
+        if (i is $$ int"; // 'int' to force this to be parsed as an IsExpression rather than IsPatternExpression
+
+            await VerifyItemExistsAsync(markup, "MAX_SIZE");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task ConstantsInIsPatternExpression()
+        {
+            var markup = @"
+class C
+{
+    public const int MAX_SIZE = 10;
+    void M()
+    {
+        int i = 10;
+        if (i is $$ 1";
+
+            await VerifyItemExistsAsync(markup, "MAX_SIZE");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2314,6 +2966,24 @@ class C
             await VerifyItemExistsAsync(markup, "MAX_SIZE");
         }
 
+        [WorkItem(25084, "https://github.com/dotnet/roslyn/issues/25084#issuecomment-370148553")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task ConstantsInSwitchPatternCase()
+        {
+            var markup = @"
+class C
+{
+    public const int MAX_SIZE = 10;
+    void M()
+    {
+        int i = 10;
+        switch (i)
+        {
+            case $$ when";
+
+            await VerifyItemExistsAsync(markup, "MAX_SIZE");
+        }
+
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task ConstantsInSwitchGotoCase()
@@ -2329,7 +2999,7 @@ class C
         {
             case MAX_SIZE:
                 break;
-            case FOO:
+            case GOO:
                 goto case $$";
 
             await VerifyItemExistsAsync(markup, "MAX_SIZE");
@@ -2342,12 +3012,12 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
+    public const int GOO = 0;
     enum E
     {
         A = $$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2357,10 +3027,10 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
+    public const int GOO = 0;
     [System.AttributeUsage($$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2370,10 +3040,10 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
-    [System.AttributeUsage(FOO, $$";
+    public const int GOO = 0;
+    [System.AttributeUsage(GOO, $$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2383,10 +3053,10 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
+    public const int GOO = 0;
     [System.AttributeUsage(validOn: $$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2396,10 +3066,10 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
+    public const int GOO = 0;
     [System.AttributeUsage(AllowMultiple = $$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2409,10 +3079,10 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
+    public const int GOO = 0;
     void M(int x = $$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2422,10 +3092,10 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
+    public const int GOO = 0;
     const int BAR = $$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [WorkItem(542429, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/542429")]
@@ -2435,12 +3105,12 @@ class C
             var markup = @"
 class C
 {
-    public const int FOO = 0;
+    public const int GOO = 0;
     void M()
     {
         const int BAR = $$";
 
-            await VerifyItemExistsAsync(markup, "FOO");
+            await VerifyItemExistsAsync(markup, "GOO");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -2454,7 +3124,7 @@ class C
     {
         $$";
 
-            await VerifyItemExistsAsync(markup, "M", expectedDescriptionOrNull: $"void C.M(int i) (+ 1 {FeaturesResources.Overload})");
+            await VerifyItemExistsAsync(markup, "M", expectedDescriptionOrNull: $"void C.M(int i) (+ 1 {FeaturesResources.overload})");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -2469,7 +3139,7 @@ class C
     {
         $$";
 
-            await VerifyItemExistsAsync(markup, "M", expectedDescriptionOrNull: $"void C.M(int i) (+ 2 {FeaturesResources.Overloads})");
+            await VerifyItemExistsAsync(markup, "M", expectedDescriptionOrNull: $"void C.M(int i) (+ 2 {FeaturesResources.overloads_})");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -2483,7 +3153,7 @@ class C
     {
         $$";
 
-            await VerifyItemExistsAsync(markup, "M<>", expectedDescriptionOrNull: $"void C.M<T>(T i) (+ 1 {FeaturesResources.GenericOverload})");
+            await VerifyItemExistsAsync(markup, "M<>", expectedDescriptionOrNull: $"void C.M<T>(T i) (+ 1 {FeaturesResources.generic_overload})");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -2498,7 +3168,7 @@ class C
     {
         $$";
 
-            await VerifyItemExistsAsync(markup, "M<>", expectedDescriptionOrNull: $"void C.M<T>(int i) (+ 2 {FeaturesResources.GenericOverloads})");
+            await VerifyItemExistsAsync(markup, "M<>", expectedDescriptionOrNull: $"void C.M<T>(int i) (+ 2 {FeaturesResources.generic_overloads})");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -2520,11 +3190,11 @@ class C<T>
             var markup = @"
 class C<T>
 {
-    void M(T foo)
+    void M(T goo)
     {
         $$";
 
-            await VerifyItemExistsAsync(markup, "foo", expectedDescriptionOrNull: $"({FeaturesResources.Parameter}) T foo");
+            await VerifyItemExistsAsync(markup, "goo", expectedDescriptionOrNull: $"({FeaturesResources.parameter}) T goo");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -2537,7 +3207,7 @@ class C<T>
     {
         $$";
 
-            await VerifyItemExistsAsync(markup, "T", expectedDescriptionOrNull: $"T {FeaturesResources.In} C<T>");
+            await VerifyItemExistsAsync(markup, "T", expectedDescriptionOrNull: $"T {FeaturesResources.in_} C<T>");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -2553,10 +3223,10 @@ class C
 ";
 
             var expectedDescription =
-$@"({FeaturesResources.LocalVariable}) 'a a
+$@"({FeaturesResources.local_variable}) 'a a
 
-{FeaturesResources.AnonymousTypes}
-    'a {FeaturesResources.Is} new {{  }}";
+{FeaturesResources.Anonymous_Types_colon}
+    'a {FeaturesResources.is_} new {{  }}";
 
             await VerifyItemExistsAsync(markup, "a", expectedDescription);
         }
@@ -2795,7 +3465,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         public async Task ValueNotInUsingAlias()
         {
             await VerifyItemIsAbsentAsync(
-@"using Foo = $$",
+@"using Goo = $$",
 "value");
         }
 
@@ -2812,7 +3482,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         {
             await VerifyItemExistsAsync(
 @"class C {
-    int Foo {
+    int Goo {
       set {
         $$",
 "value");
@@ -2823,7 +3493,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         {
             await VerifyItemExistsAsync(
 @"class C {
-    event int Foo {
+    event int Goo {
       add {
         $$",
 "value");
@@ -2834,7 +3504,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         {
             await VerifyItemExistsAsync(
 @"class C {
-    event int Foo {
+    event int Goo {
       remove {
         $$",
 "value");
@@ -2845,7 +3515,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         {
             await VerifyItemIsAbsentAsync(
 @"class C {
-    int Foo {
+    int Goo {
       set {
         this.$$",
 "value");
@@ -2856,7 +3526,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         {
             await VerifyItemIsAbsentAsync(
 @"class C {
-    int Foo {
+    int Goo {
       set {
         a->$$",
 "value");
@@ -2867,7 +3537,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         {
             await VerifyItemIsAbsentAsync(
 @"class C {
-    int Foo {
+    int Goo {
       set {
         a::$$",
 "value");
@@ -2878,7 +3548,7 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
         {
             await VerifyItemIsAbsentAsync(
 @"class C {
-    int Foo {
+    int Goo {
       get {
         $$",
 "value");
@@ -2891,9 +3561,9 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
             await VerifyItemIsAbsentAsync(
 @"class C {
     void M() {
-        int foo = 0;
+        int goo = 0;
         C? $$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2904,9 +3574,9 @@ expectedDescriptionOrNull: null, sourceCodeKind: SourceCodeKind.Script);
 @"using A = System.Int32;
 class C {
     void M() {
-        int foo = 0;
+        int goo = 0;
         A? $$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2916,9 +3586,9 @@ class C {
             await VerifyItemIsAbsentAsync(
 @"class C {
     void M() {
-        int foo = 0;
+        int goo = 0;
         C? f$$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2929,9 +3599,9 @@ class C {
 @"class C {
     void M() {
         bool b = false;
-        int foo = 0;
+        int goo = 0;
         b? $$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2942,9 +3612,9 @@ class C {
 @"class C {
     void M() {
         bool b = false;
-        int foo = 0;
+        int goo = 0;
         b? f$$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2954,9 +3624,9 @@ class C {
             await VerifyItemIsAbsentAsync(
 @"class C {
     void M() {
-        int foo = 0;
+        int goo = 0;
         C* $$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2967,9 +3637,9 @@ class C {
 @"using A = System.Int32;
 class C {
     void M() {
-        int foo = 0;
+        int goo = 0;
         A* $$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2979,9 +3649,9 @@ class C {
             await VerifyItemIsAbsentAsync(
 @"class C {
     void M() {
-        int foo = 0;
+        int goo = 0;
         C* f$$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -2992,9 +3662,9 @@ class C {
 @"class C {
     void M() {
         int i = 0;
-        int foo = 0;
+        int goo = 0;
         i* $$",
-"foo");
+"goo");
         }
 
         [WorkItem(544205, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544205")]
@@ -3005,9 +3675,9 @@ class C {
 @"class C {
     void M() {
         int i = 0;
-        int foo = 0;
+        int goo = 0;
         i* f$$",
-"foo");
+"goo");
         }
 
         [WorkItem(543868, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/543868")]
@@ -3099,7 +3769,7 @@ public class XAttribute : Attribute
 class Class3 { }
 ";
             await VerifyItemExistsAsync(code, "X");
-            await Assert.ThrowsAsync<Xunit.Sdk.TrueException>(async () => await VerifyItemExistsAsync(code, "XAttribute"));
+            await Assert.ThrowsAsync<Xunit.Sdk.TrueException>(() => VerifyItemExistsAsync(code, "XAttribute"));
         }
 
         [WorkItem(544928, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/544928")]
@@ -3174,15 +3844,15 @@ class Program
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task LocalVariableInItsDeclaration()
         {
-            // "int foo = foo = 1" is a legal declaration
+            // "int goo = goo = 1" is a legal declaration
             await VerifyItemExistsAsync(@"
 class Program
 {
     void M()
     {
-        int foo = $$
+        int goo = $$
     }
-}", "foo");
+}", "goo");
         }
 
         [WorkItem(10572, "DevDiv_Projects/Roslyn")]
@@ -3195,7 +3865,7 @@ class Program
 {
     void M()
     {
-        int foo = 0, int bar = $$, int baz = 0;
+        int goo = 0, int bar = $$, int baz = 0;
     }
 }", "bar");
         }
@@ -3210,9 +3880,9 @@ class Program
     void M()
     {
         $$
-        int foo = 0;
+        int goo = 0;
     }
-}", "foo");
+}", "goo");
         }
 
         [WorkItem(10572, "DevDiv_Projects/Roslyn")]
@@ -3224,7 +3894,7 @@ class Program
 {
     void M()
     {
-        int foo = $$, bar = 0;
+        int goo = $$, bar = 0;
     }
 }", "bar");
         }
@@ -3238,9 +3908,9 @@ class Program
 {
     void M()
     {
-        int foo = 0, int bar = $$
+        int goo = 0, int bar = $$
     }
-}", "foo");
+}", "goo");
         }
 
         [WorkItem(10572, "DevDiv_Projects/Roslyn")]
@@ -3252,14 +3922,14 @@ class Program
 {
     void M()
     {
-        int foo = Bar(out $$
+        int goo = Bar(out $$
     }
     int Bar(out int x)
     {
         x = 3;
         return 5;
     }
-}", "foo");
+}", "goo");
         }
 
         [WorkItem(7336, "DevDiv_Projects/Roslyn")]
@@ -3271,12 +3941,12 @@ class Program
 {
     void M()
     {
-        Foo.$$
+        Goo.$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
     public static void Bar() 
@@ -3302,12 +3972,12 @@ class Program
 {
     void M()
     {
-        Foo.$$
+        Goo.$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
     public static void Bar() 
@@ -3333,12 +4003,12 @@ class Program
 {
     void M()
     {
-        Foo.$$
+        Goo.$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Advanced)]
     public static void Bar() 
@@ -3375,12 +4045,12 @@ class Program
 {
     void M()
     {
-        Foo.$$
+        Goo.$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
     public static void Bar() 
@@ -3412,12 +4082,12 @@ class Program
 {
     void M()
     {
-        Foo.$$
+        Goo.$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
     public static void Bar() 
@@ -3449,12 +4119,12 @@ class Program
 {
     void M()
     {
-        Foo.$$
+        Goo.$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
     public static void Bar() 
@@ -3486,19 +4156,19 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
 }
 
-public static class FooExtensions
+public static class GooExtensions
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
-    public static void Bar(this Foo foo, int x)
+    public static void Bar(this Goo goo, int x)
     {
     }
 }";
@@ -3522,19 +4192,19 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
 }
 
-public static class FooExtensions
+public static class GooExtensions
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public static void Bar(this Foo foo, int x)
+    public static void Bar(this Goo goo, int x)
     {
     }
 }";
@@ -3558,19 +4228,19 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
 }
 
-public static class FooExtensions
+public static class GooExtensions
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Advanced)]
-    public static void Bar(this Foo foo, int x)
+    public static void Bar(this Goo goo, int x)
     {
     }
 }";
@@ -3605,24 +4275,24 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
 }
 
-public static class FooExtensions
+public static class GooExtensions
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
-    public static void Bar(this Foo foo, int x)
+    public static void Bar(this Goo goo, int x)
     {
     }
 
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public static void Bar(this Foo foo, int x, int y)
+    public static void Bar(this Goo goo, int x, int y)
     {
     }
 }";
@@ -3646,12 +4316,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
     public void Bar(int x)
@@ -3659,10 +4329,10 @@ public class Foo
     }
 }
 
-public static class FooExtensions
+public static class GooExtensions
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
-    public static void Bar(this Foo foo, int x, int y)
+    public static void Bar(this Goo goo, int x, int y)
     {
     }
 }";
@@ -3686,12 +4356,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
     public void Bar(int x)
@@ -3699,10 +4369,10 @@ public class Foo
     }
 }
 
-public static class FooExtensions
+public static class GooExtensions
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
-    public static void Bar(this Foo foo, int x, int y)
+    public static void Bar(this Goo goo, int x, int y)
     {
     }
 }";
@@ -3726,12 +4396,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
     public void Bar(int x)
@@ -3739,10 +4409,10 @@ public class Foo
     }
 }
 
-public static class FooExtensions
+public static class GooExtensions
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
-    public static void Bar(this Foo foo, int x)
+    public static void Bar(this Goo goo, int x)
     {
     }
 }";
@@ -3774,14 +4444,14 @@ class Program
             var referencedCode = @"
 public class B
 {
-    public virtual void Foo(int original) 
+    public virtual void Goo(int original) 
     {
     }
 }
 
 public class D : B
 {
-    public override void Foo(int derived) 
+    public override void Goo(int derived) 
     {
     }
 }";
@@ -3789,7 +4459,7 @@ public class D : B
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -3814,7 +4484,7 @@ class Program
 [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
 public class C
 {
-    public void Foo() 
+    public void Goo() 
     {
     }
 }";
@@ -3822,7 +4492,7 @@ public class C
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -3847,14 +4517,14 @@ class Program
 [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
 public class B
 {
-    public void Foo() 
+    public void Goo() 
     {
     }
 }
 
 public class D : B
 {
-    public void Foo(int x)
+    public void Goo(int x)
     {
     }
 }";
@@ -3862,7 +4532,7 @@ public class D : B
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 2,
                 sourceLanguage: LanguageNames.CSharp,
@@ -3886,7 +4556,7 @@ class Program : B
 public class B
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo() 
+    public void Goo() 
     {
     }
 }";
@@ -3894,7 +4564,7 @@ public class B
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -3918,14 +4588,14 @@ class Program
             var referencedCode = @"
 public class C<T>
 {
-    public void Foo(T t) { }
-    public void Foo(int i) { }
+    public void Goo(T t) { }
+    public void Goo(int i) { }
 }";
 
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 2,
                 sourceLanguage: LanguageNames.CSharp,
@@ -3950,14 +4620,14 @@ class Program
 public class C<T>
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo(T t) { }
-    public void Foo(int i) { }
+    public void Goo(T t) { }
+    public void Goo(int i) { }
 }";
 
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -3981,15 +4651,15 @@ class Program
             var referencedCode = @"
 public class C<T>
 {
-    public void Foo(T t) { }
+    public void Goo(T t) { }
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo(int i) { }
+    public void Goo(int i) { }
 }";
 
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4014,15 +4684,15 @@ class Program
 public class C<T>
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo(T t) { }
+    public void Goo(T t) { }
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo(int i) { }
+    public void Goo(int i) { }
 }";
 
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4046,14 +4716,14 @@ class Program
             var referencedCode = @"
 public class C<T, U>
 {
-    public void Foo(T t) { }
-    public void Foo(U u) { }
+    public void Goo(T t) { }
+    public void Goo(U u) { }
 }";
 
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 2,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4078,14 +4748,14 @@ class Program
 public class C<T, U>
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo(T t) { }
-    public void Foo(U u) { }
+    public void Goo(T t) { }
+    public void Goo(U u) { }
 }";
 
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4110,15 +4780,15 @@ class Program
 public class C<T, U>
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo(T t) { }
+    public void Goo(T t) { }
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public void Foo(U u) { }
+    public void Goo(U u) { }
 }";
 
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 2,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4134,12 +4804,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
     public int bar;
@@ -4164,12 +4834,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
     public int bar;
@@ -4193,12 +4863,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Advanced)]
     public int bar;
@@ -4234,12 +4904,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
     public int Bar {get; set;}
@@ -4263,12 +4933,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     public int Bar {
         [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
@@ -4296,12 +4966,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
     public int Bar {get; set;}
@@ -4325,12 +4995,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Advanced)]
     public int Bar {get; set;}
@@ -4370,17 +5040,17 @@ class Program
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public Foo()
+    public Goo()
     {
     }
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4401,17 +5071,17 @@ class Program
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Always)]
-    public Foo()
+    public Goo()
     {
     }
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4432,17 +5102,17 @@ class Program
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Advanced)]
-    public Foo()
+    public Goo()
     {
     }
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4452,7 +5122,7 @@ public class Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4474,21 +5144,21 @@ class Program
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public Foo()
+    public Goo()
     {
     }
 
-    public Foo(int x)
+    public Goo(int x)
     {
     }
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4509,22 +5179,22 @@ class Program
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public Foo()
+    public Goo()
     {
     }
 
     [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-    public Foo(int x)
+    public Goo(int x)
     {
     }
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4733,13 +5403,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4757,13 +5427,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4787,7 +5457,7 @@ class Program
 namespace NS
 {
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-    public class Foo : System.IDisposable
+    public class Goo : System.IDisposable
     {
         public void Dispose()
         {
@@ -4797,7 +5467,7 @@ namespace NS
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4819,13 +5489,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4843,13 +5513,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4873,7 +5543,7 @@ class Program
 namespace NS
 {
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-    public class Foo : System.IDisposable
+    public class Goo : System.IDisposable
     {
         public void Dispose()
         {
@@ -4883,7 +5553,7 @@ namespace NS
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4905,13 +5575,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4921,7 +5591,7 @@ public class Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4940,13 +5610,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4956,7 +5626,7 @@ public class Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -4981,7 +5651,7 @@ class Program
 namespace NS
 {
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-    public class Foo : System.IDisposable
+    public class Goo : System.IDisposable
     {
         public void Dispose()
         {
@@ -4991,7 +5661,7 @@ namespace NS
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5001,7 +5671,7 @@ namespace NS
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5023,7 +5693,7 @@ class Program
 }";
 
             var referencedCode = @"
-public class Foo : Bar
+public class Goo : Bar
 {
 }
 
@@ -5034,7 +5704,7 @@ public class Bar
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5056,13 +5726,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public struct Foo
+public struct Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5080,13 +5750,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public struct Foo
+public struct Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5108,13 +5778,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-public struct Foo
+public struct Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5132,13 +5802,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-public struct Foo
+public struct Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5160,13 +5830,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-public struct Foo
+public struct Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5176,7 +5846,7 @@ public struct Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5195,13 +5865,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-public struct Foo
+public struct Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5211,7 +5881,7 @@ public struct Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5234,13 +5904,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public enum Foo
+public enum Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5262,13 +5932,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-public enum Foo
+public enum Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5290,13 +5960,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-public enum Foo
+public enum Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5306,7 +5976,7 @@ public enum Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5329,13 +5999,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public interface Foo
+public interface Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5353,13 +6023,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public interface Foo
+public interface Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5381,13 +6051,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-public interface Foo
+public interface Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5405,13 +6075,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)]
-public interface Foo
+public interface Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5433,13 +6103,13 @@ class Program
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-public interface Foo
+public interface Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5449,7 +6119,7 @@ public interface Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5468,13 +6138,13 @@ class Program : $$
 
             var referencedCode = @"
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Advanced)]
-public interface Foo
+public interface Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5484,7 +6154,7 @@ public interface Foo
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5507,12 +6177,12 @@ class Program
 
             var referencedCode = @"
 <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Always)>
-Public Class Foo
+Public Class Goo
 End Class";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5535,12 +6205,12 @@ class Program
 
             var referencedCode = @"
 <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
-Public Class Foo
+Public Class Goo
 End Class";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 0,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5563,13 +6233,13 @@ class Program
 
             var referencedCode = @"
 [System.Runtime.InteropServices.TypeLibType(System.Runtime.InteropServices.TypeLibTypeFlags.FLicensed)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5591,13 +6261,13 @@ class Program
 
             var referencedCode = @"
 [System.Runtime.InteropServices.TypeLibType(System.Runtime.InteropServices.TypeLibTypeFlags.FHidden)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5619,13 +6289,13 @@ class Program
 
             var referencedCode = @"
 [System.Runtime.InteropServices.TypeLibType(System.Runtime.InteropServices.TypeLibTypeFlags.FHidden | System.Runtime.InteropServices.TypeLibTypeFlags.FLicensed)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5647,13 +6317,13 @@ class Program
 
             var referencedCode = @"
 [System.Runtime.InteropServices.TypeLibType((short)System.Runtime.InteropServices.TypeLibTypeFlags.FLicensed)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 1,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5675,13 +6345,13 @@ class Program
 
             var referencedCode = @"
 [System.Runtime.InteropServices.TypeLibType((short)System.Runtime.InteropServices.TypeLibTypeFlags.FHidden)]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5703,13 +6373,13 @@ class Program
 
             var referencedCode = @"
 [System.Runtime.InteropServices.TypeLibType((short)(System.Runtime.InteropServices.TypeLibTypeFlags.FHidden | System.Runtime.InteropServices.TypeLibTypeFlags.FLicensed))]
-public class Foo
+public class Goo
 {
 }";
             await VerifyItemInEditorBrowsableContextsAsync(
                 markup: markup,
                 referencedCode: referencedCode,
-                item: "Foo",
+                item: "Goo",
                 expectedSymbolsSameSolution: 1,
                 expectedSymbolsMetadataReference: 0,
                 sourceLanguage: LanguageNames.CSharp,
@@ -5725,12 +6395,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibFunc(System.Runtime.InteropServices.TypeLibFuncFlags.FReplaceable)]
     public void Bar()
@@ -5756,12 +6426,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibFunc(System.Runtime.InteropServices.TypeLibFuncFlags.FHidden)]
     public void Bar()
@@ -5787,12 +6457,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibFunc(System.Runtime.InteropServices.TypeLibFuncFlags.FHidden | System.Runtime.InteropServices.TypeLibFuncFlags.FReplaceable)]
     public void Bar()
@@ -5818,12 +6488,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibFunc((short)System.Runtime.InteropServices.TypeLibFuncFlags.FReplaceable)]
     public void Bar()
@@ -5849,12 +6519,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibFunc((short)System.Runtime.InteropServices.TypeLibFuncFlags.FHidden)]
     public void Bar()
@@ -5880,12 +6550,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibFunc((short)(System.Runtime.InteropServices.TypeLibFuncFlags.FHidden | System.Runtime.InteropServices.TypeLibFuncFlags.FReplaceable))]
     public void Bar()
@@ -5911,12 +6581,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibVar(System.Runtime.InteropServices.TypeLibVarFlags.FReplaceable)]
     public int bar;
@@ -5940,12 +6610,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibVar(System.Runtime.InteropServices.TypeLibVarFlags.FHidden)]
     public int bar;
@@ -5969,12 +6639,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibVar(System.Runtime.InteropServices.TypeLibVarFlags.FHidden | System.Runtime.InteropServices.TypeLibVarFlags.FReplaceable)]
     public int bar;
@@ -5998,12 +6668,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibVar((short)System.Runtime.InteropServices.TypeLibVarFlags.FReplaceable)]
     public int bar;
@@ -6027,12 +6697,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibVar((short)System.Runtime.InteropServices.TypeLibVarFlags.FHidden)]
     public int bar;
@@ -6056,12 +6726,12 @@ class Program
 {
     void M()
     {
-        new Foo().$$
+        new Goo().$$
     }
 }";
 
             var referencedCode = @"
-public class Foo
+public class Goo
 {
     [System.Runtime.InteropServices.TypeLibVar((short)(System.Runtime.InteropServices.TypeLibVarFlags.FHidden | System.Runtime.InteropServices.TypeLibVarFlags.FReplaceable))]
     public int bar;
@@ -6083,7 +6753,7 @@ public class Foo
             var markup = @"
 class A
 {
-    static void Foo() { }
+    static void Goo() { }
     void Bar() { }
  
     static void Main()
@@ -6093,7 +6763,7 @@ class A
     }
 }";
 
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
             await VerifyItemExistsAsync(markup, "Bar");
         }
 
@@ -6202,6 +6872,19 @@ class Program
             await VerifyItemExistsAsync(markup, "CommandLine");
         }
 
+        [WorkItem(12781, "https://github.com/dotnet/roslyn/issues/12781")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TestFieldDeclarationAmbiguity()
+        {
+            var markup = @"
+using System;
+Environment.$$
+var v;
+}";
+
+            await VerifyItemExistsAsync(markup, "CommandLine", sourceCodeKind: SourceCodeKind.Script);
+        }
+
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task TestCursorOnClassCloseBrace()
         {
@@ -6250,7 +6933,7 @@ class Program
 using System.Threading.Tasks;
 class Program
 {
-    void foo()
+    void goo()
     {
         var x = async $$
     }
@@ -6265,13 +6948,13 @@ class Program
             var markup = @"
 class Program
 {
-    void foo()
+    void goo()
     {
         $$
     }
 }";
 
-            await VerifyItemWithMscorlib45Async(markup, "foo", "void Program.foo()", "C#");
+            await VerifyItemWithMscorlib45Async(markup, "goo", "void Program.goo()", "C#");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -6280,13 +6963,13 @@ class Program
             var markup = @"
 class Program
 {
-    async void foo()
+    async void goo()
     {
         $$
     }
 }";
 
-            await VerifyItemWithMscorlib45Async(markup, "foo", "void Program.foo()", "C#");
+            await VerifyItemWithMscorlib45Async(markup, "goo", "void Program.goo()", "C#");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -6298,17 +6981,17 @@ using System.Threading.Tasks;
 
 class Program
 {
-    async Task foo()
+    async Task goo()
     {
         $$
     }
 }";
 
-            var description = $@"({CSharpFeaturesResources.Awaitable}) Task Program.foo()
-{WorkspacesResources.Usage}
-  {SyntaxFacts.GetText(SyntaxKind.AwaitKeyword)} foo();";
+            var description = $@"({CSharpFeaturesResources.awaitable}) Task Program.goo()
+{WorkspacesResources.Usage_colon}
+  {SyntaxFacts.GetText(SyntaxKind.AwaitKeyword)} goo();";
 
-            await VerifyItemWithMscorlib45Async(markup, "foo", description, "C#");
+            await VerifyItemWithMscorlib45Async(markup, "goo", description, "C#");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -6319,17 +7002,17 @@ using System.Threading.Tasks;
 
 class Program
 {
-    async Task<int> foo()
+    async Task<int> goo()
     {
         $$
     }
 }";
 
-            var description = $@"({CSharpFeaturesResources.Awaitable}) Task<int> Program.foo()
-{WorkspacesResources.Usage}
-  int x = {SyntaxFacts.GetText(SyntaxKind.AwaitKeyword)} foo();";
+            var description = $@"({CSharpFeaturesResources.awaitable}) Task<int> Program.goo()
+{WorkspacesResources.Usage_colon}
+  int x = {SyntaxFacts.GetText(SyntaxKind.AwaitKeyword)} goo();";
 
-            await VerifyItemWithMscorlib45Async(markup, "foo", description, "C#");
+            await VerifyItemWithMscorlib45Async(markup, "goo", description, "C#");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -6341,12 +7024,12 @@ using System;
 class Program
 {
     [Obsolete]
-    public void foo()
+    public void goo()
     {
         $$
     }
 }";
-            await VerifyItemExistsAsync(markup, "foo", $"[{CSharpFeaturesResources.Deprecated}] void Program.foo()");
+            await VerifyItemExistsAsync(markup, "goo", $"[{CSharpFeaturesResources.deprecated}] void Program.goo()");
         }
 
         [WorkItem(568986, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/568986")]
@@ -6356,11 +7039,11 @@ class Program
             var markup = @"
 class Program
 {
-    RegistryKey foo;
+    RegistryKey goo;
  
     static void Main(string[] args)
     {
-        foo.$$
+        goo.$$
     }
 }";
             await VerifyNoItemsExistAsync(markup);
@@ -6371,7 +7054,7 @@ class Program
         public async Task TypeArgumentsInConstraintAfterBaselist()
         {
             var markup = @"
-public class Foo<T> : System.Object where $$
+public class Goo<T> : System.Object where $$
 {
 }";
             await VerifyItemExistsAsync(markup, "T");
@@ -6467,9 +7150,9 @@ class c { public int value {set; get; }}
 
 class d
 {
-    void foo()
+    void goo()
     {
-       c foo = new c { value$$=
+       c goo = new c { value$$=
     }
 }";
 
@@ -6563,7 +7246,7 @@ class C
             var markup = @"
 class C
 {
-    void foo()
+    void goo()
     {
         global::$$
     }
@@ -6580,7 +7263,7 @@ class C
 extern alias Bar;
 class C
 {
-    void foo()
+    void goo()
     {
         $$
     }
@@ -6640,7 +7323,7 @@ struct C
 class C
 {
     int x;
-    void foo()
+    void goo()
     {
         $$
     }
@@ -6653,21 +7336,21 @@ class C
     </Project>
 </Workspace>";
 
-            await VerifyItemInLinkedFilesAsync(markup, "x", $"({FeaturesResources.Field}) int C.x");
+            await VerifyItemInLinkedFilesAsync(markup, "x", $"({FeaturesResources.field}) int C.x");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task FieldUnavailableInOneLinkedFile()
         {
             var markup = @"<Workspace>
-    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""FOO"">
+    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""GOO"">
         <Document FilePath=""CurrentDocument.cs""><![CDATA[
 class C
 {
-#if FOO
+#if GOO
     int x;
 #endif
-    void foo()
+    void goo()
     {
         $$
     }
@@ -6679,7 +7362,7 @@ class C
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"({FeaturesResources.Field}) int C.x\r\n\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj2", FeaturesResources.NotAvailable)}\r\n\r\n{FeaturesResources.UseTheNavigationBarToSwitchContext}";
+            var expectedDescription = $"({FeaturesResources.field}) int C.x\r\n\r\n{string.Format(FeaturesResources._0_1, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources._0_1, "Proj2", FeaturesResources.Not_Available)}\r\n\r\n{FeaturesResources.You_can_use_the_navigation_bar_to_switch_context}";
 
             await VerifyItemInLinkedFilesAsync(markup, "x", expectedDescription);
         }
@@ -6688,14 +7371,14 @@ class C
         public async Task FieldUnavailableInTwoLinkedFiles()
         {
             var markup = @"<Workspace>
-    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""FOO"">
+    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""GOO"">
         <Document FilePath=""CurrentDocument.cs""><![CDATA[
 class C
 {
-#if FOO
+#if GOO
     int x;
 #endif
-    void foo()
+    void goo()
     {
         $$
     }
@@ -6710,7 +7393,7 @@ class C
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"({FeaturesResources.Field}) int C.x\r\n\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj2", FeaturesResources.NotAvailable)}\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj3", FeaturesResources.NotAvailable)}\r\n\r\n{FeaturesResources.UseTheNavigationBarToSwitchContext}";
+            var expectedDescription = $"({FeaturesResources.field}) int C.x\r\n\r\n{string.Format(FeaturesResources._0_1, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources._0_1, "Proj2", FeaturesResources.Not_Available)}\r\n{string.Format(FeaturesResources._0_1, "Proj3", FeaturesResources.Not_Available)}\r\n\r\n{FeaturesResources.You_can_use_the_navigation_bar_to_switch_context}";
 
             await VerifyItemInLinkedFilesAsync(markup, "x", expectedDescription);
         }
@@ -6719,16 +7402,16 @@ class C
         public async Task ExcludeFilesWithInactiveRegions()
         {
             var markup = @"<Workspace>
-    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""FOO,BAR"">
+    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""GOO,BAR"">
         <Document FilePath=""CurrentDocument.cs""><![CDATA[
 class C
 {
-#if FOO
+#if GOO
     int x;
 #endif
 
 #if BAR
-    void foo()
+    void goo()
     {
         $$
     }
@@ -6744,7 +7427,7 @@ class C
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"({FeaturesResources.Field}) int C.x\r\n\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj3", FeaturesResources.NotAvailable)}\r\n\r\n{FeaturesResources.UseTheNavigationBarToSwitchContext}";
+            var expectedDescription = $"({FeaturesResources.field}) int C.x\r\n\r\n{string.Format(FeaturesResources._0_1, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources._0_1, "Proj3", FeaturesResources.Not_Available)}\r\n\r\n{FeaturesResources.You_can_use_the_navigation_bar_to_switch_context}";
 
             await VerifyItemInLinkedFilesAsync(markup, "x", expectedDescription);
         }
@@ -6753,11 +7436,11 @@ class C
         public async Task UnionOfItemsFromBothContexts()
         {
             var markup = @"<Workspace>
-    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""FOO"">
+    <Project Language=""C#"" CommonReferences=""true"" AssemblyName=""Proj1"" PreprocessorSymbols=""GOO"">
         <Document FilePath=""CurrentDocument.cs""><![CDATA[
 class C
 {
-#if FOO
+#if GOO
     int x;
 #endif
 
@@ -6767,7 +7450,7 @@ class C
         public void DoGStuff() {}
     }
 #endif
-    void foo()
+    void goo()
     {
         new G().$$
     }
@@ -6782,7 +7465,7 @@ class C
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"void G.DoGStuff()\r\n\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj1", FeaturesResources.NotAvailable)}\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj2", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj3", FeaturesResources.NotAvailable)}\r\n\r\n{FeaturesResources.UseTheNavigationBarToSwitchContext}";
+            var expectedDescription = $"void G.DoGStuff()\r\n\r\n{string.Format(FeaturesResources._0_1, "Proj1", FeaturesResources.Not_Available)}\r\n{string.Format(FeaturesResources._0_1, "Proj2", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources._0_1, "Proj3", FeaturesResources.Not_Available)}\r\n\r\n{FeaturesResources.You_can_use_the_navigation_bar_to_switch_context}";
 
             await VerifyItemInLinkedFilesAsync(markup, "DoGStuff", expectedDescription);
         }
@@ -6809,7 +7492,7 @@ class C
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"({FeaturesResources.LocalVariable}) int xyz";
+            var expectedDescription = $"({FeaturesResources.local_variable}) int xyz";
             await VerifyItemInLinkedFilesAsync(markup, "xyz", expectedDescription);
         }
 
@@ -6837,7 +7520,7 @@ class C
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"({FeaturesResources.LocalVariable}) int xyz\r\n\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources.ProjectAvailability, "Proj2", FeaturesResources.NotAvailable)}\r\n\r\n{FeaturesResources.UseTheNavigationBarToSwitchContext}";
+            var expectedDescription = $"({FeaturesResources.local_variable}) int xyz\r\n\r\n{string.Format(FeaturesResources._0_1, "Proj1", FeaturesResources.Available)}\r\n{string.Format(FeaturesResources._0_1, "Proj2", FeaturesResources.Not_Available)}\r\n\r\n{FeaturesResources.You_can_use_the_navigation_bar_to_switch_context}";
             await VerifyItemInLinkedFilesAsync(markup, "xyz", expectedDescription);
         }
 
@@ -6863,7 +7546,7 @@ LABEL:  int xyz;
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"({FeaturesResources.Label}) LABEL";
+            var expectedDescription = $"({FeaturesResources.label}) LABEL";
             await VerifyItemInLinkedFilesAsync(markup, "LABEL", expectedDescription);
         }
 
@@ -6889,7 +7572,7 @@ class C
         <Document IsLinkFile=""true"" LinkAssemblyName=""Proj1"" LinkFilePath=""CurrentDocument.cs""/>
     </Project>
 </Workspace>";
-            var expectedDescription = $"({FeaturesResources.RangeVariable}) ? y";
+            var expectedDescription = $"({FeaturesResources.range_variable}) ? y";
             await VerifyItemInLinkedFilesAsync(markup, "y", expectedDescription);
         }
 
@@ -7001,7 +7684,7 @@ public static class Extensions
     </Project>
 </Workspace>";
 
-            var expectedDescription = $"({CSharpFeaturesResources.Extension}) void C.Do(string x)";
+            var expectedDescription = $"({CSharpFeaturesResources.extension}) void C.Do(string x)";
             await VerifyItemInLinkedFilesAsync(markup, "Do", expectedDescription);
         }
 
@@ -7073,7 +7756,7 @@ class C
 #if TWO
     public int x {get; set;}
 #endif
-    void foo()
+    void goo()
     {
         x$$
     }
@@ -7086,7 +7769,7 @@ class C
     </Project>
 </Workspace>";
 
-            var expectedDescription = $"(field) int C.x";
+            var expectedDescription = $"({ FeaturesResources.field }) int C.x";
             await VerifyItemInLinkedFilesAsync(markup, "x", expectedDescription);
         }
 
@@ -7104,7 +7787,7 @@ class C
 #if ONE
     public int x {get; set;}
 #endif
-    void foo()
+    void goo()
     {
         x$$
     }
@@ -7137,14 +7820,14 @@ class A
     public A AB;
     public int? x;
 
-    public void foo()
+    public void goo()
     {
         A a = null;
         var q = a?.$$AB.BA.AB.BA;
     }
 }";
-            await VerifyItemExistsAsync(markup, "AA", experimental: true);
-            await VerifyItemExistsAsync(markup, "AB", experimental: true);
+            await VerifyItemExistsAsync(markup, "AA");
+            await VerifyItemExistsAsync(markup, "AB");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -7160,14 +7843,14 @@ class A
 {
     public S? s;
 
-    public void foo()
+    public void goo()
     {
         A a = null;
         var q = a?.s?.$$;
     }
 }";
-            await VerifyItemExistsAsync(markup, "i", experimental: true);
-            await VerifyItemIsAbsentAsync(markup, "value", experimental: true);
+            await VerifyItemExistsAsync(markup, "i");
+            await VerifyItemIsAbsentAsync(markup, "value");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -7183,13 +7866,13 @@ class A
 {
     public S? s;
 
-    public void foo()
+    public void goo()
     {
         var q = s?.$$i?.ToString();
     }
 }";
-            await VerifyItemExistsAsync(markup, "i", experimental: true);
-            await VerifyItemIsAbsentAsync(markup, "value", experimental: true);
+            await VerifyItemExistsAsync(markup, "i");
+            await VerifyItemIsAbsentAsync(markup, "value");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -7205,13 +7888,13 @@ class A
 {
     public S[] s;
 
-    public void foo()
+    public void goo()
     {
         A a = null;
         var q = a?.s?[$$;
     }
 }";
-            await VerifyItemExistsAsync(markup, "System", experimental: true);
+            await VerifyItemExistsAsync(markup, "System");
         }
 
         [WorkItem(1109319, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/1109319")]
@@ -7481,15 +8164,15 @@ class Program
         public async Task DescriptionInAliasedType()
         {
             var markup = @"
-using IAlias = IFoo;
-///<summary>summary for interface IFoo</summary>
-interface IFoo {  }
+using IAlias = IGoo;
+///<summary>summary for interface IGoo</summary>
+interface IGoo {  }
 class C 
 { 
     I$$
 }
 ";
-            await VerifyItemExistsAsync(markup, "IAlias", expectedDescriptionOrNull: "interface IFoo\r\nsummary for interface IFoo");
+            await VerifyItemExistsAsync(markup, "IAlias", expectedDescriptionOrNull: "interface IGoo\r\nsummary for interface IGoo");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -7498,7 +8181,7 @@ class C
             var markup = @"
 class C 
 { 
-    void foo()
+    void goo()
     {
         var x = nameof($$)
     }
@@ -7543,14 +8226,14 @@ class C
 using System;
 class C
 {
-  void foo()
+  void goo()
     {
         var x = Console.$$
         var y = 3;
     }
 }
 ";
-            await VerifyItemExistsAsync(markup, "WriteLine", experimental: true);
+            await VerifyItemExistsAsync(markup, "WriteLine");
         }
 
         [WorkItem(1024380, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/1024380")]
@@ -7567,7 +8250,7 @@ class C
         public static int y;   
     }
 
-  void foo()
+  void goo()
     {
         var z = nameof(C.D.$$
     }
@@ -8020,7 +8703,7 @@ using static B;
 
 static class A
 {
-    public static void Foo(this string s) { }
+    public static void Goo(this string s) { }
 }
 
 static class B
@@ -8037,7 +8720,7 @@ class C
 }
 ";
 
-            await VerifyItemIsAbsentAsync(markup, "Foo");
+            await VerifyItemIsAbsentAsync(markup, "Goo");
             await VerifyItemIsAbsentAsync(markup, "Bar");
         }
 
@@ -8051,7 +8734,7 @@ namespace N
 {
     static class A
     {
-        public static void Foo(this string s) { }
+        public static void Goo(this string s) { }
     }
 
     static class B
@@ -8069,7 +8752,7 @@ class C
 }
 ";
 
-            await VerifyItemIsAbsentAsync(markup, "Foo");
+            await VerifyItemIsAbsentAsync(markup, "Goo");
             await VerifyItemIsAbsentAsync(markup, "Bar");
         }
 
@@ -8083,7 +8766,7 @@ namespace N
 {
     static class A
     {
-        public static void Foo(this string s) { }
+        public static void Goo(this string s) { }
     }
 
     static class B
@@ -8102,7 +8785,7 @@ class C
 }
 ";
 
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
             await VerifyItemExistsAsync(markup, "Bar");
         }
 
@@ -8117,7 +8800,7 @@ namespace N
 {
     static class A
     {
-        public static void Foo(this string s) { }
+        public static void Goo(this string s) { }
     }
 
     static class B
@@ -8136,7 +8819,7 @@ class C
 }
 ";
 
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
             await VerifyItemExistsAsync(markup, "Bar");
         }
 
@@ -8150,7 +8833,7 @@ namespace N
 {
     static class A
     {
-        public static void Foo(this string s) { }
+        public static void Goo(this string s) { }
     }
 
     static class B
@@ -8169,7 +8852,7 @@ class C
 }
 ";
 
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
             await VerifyItemIsAbsentAsync(markup, "Bar");
         }
 
@@ -8183,7 +8866,7 @@ namespace N
 {
     static class A
     {
-        public static void Foo(this string s) { }
+        public static void Goo(this string s) { }
     }
 
     static class B
@@ -8202,7 +8885,7 @@ class C
 }
 ";
 
-            await VerifyItemIsAbsentAsync(markup, "Foo");
+            await VerifyItemIsAbsentAsync(markup, "Goo");
             await VerifyItemExistsAsync(markup, "Bar");
         }
 
@@ -8217,7 +8900,7 @@ namespace N
 {
     static class A
     {
-        public static void Foo(this string s) { }
+        public static void Goo(this string s) { }
     }
 
     static class B
@@ -8236,7 +8919,7 @@ class C
 }
 ";
 
-            await VerifyItemExistsAsync(markup, "Foo");
+            await VerifyItemExistsAsync(markup, "Goo");
             await VerifyItemExistsAsync(markup, "Bar");
         }
 
@@ -8298,6 +8981,25 @@ class C
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task ExceptionFilter1_NotBeforeOpenParen()
+        {
+            var markup = @"
+using System;
+
+class C
+{
+    void M(bool x)
+    {
+        try
+        {
+        }
+        catch when $$
+";
+
+            await VerifyNoItemsExistAsync(markup);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
         public async Task ExceptionFilter2()
         {
             var markup = @"
@@ -8311,6 +9013,59 @@ class C
         {
         }
         catch (Exception ex) when ($$
+";
+
+            await VerifyItemExistsAsync(markup, "x");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task ExceptionFilter2_NotBeforeOpenParen()
+        {
+            var markup = @"
+using System;
+
+class C
+{
+    void M(bool x)
+    {
+        try
+        {
+        }
+        catch (Exception ex) when $$
+";
+
+            await VerifyNoItemsExistAsync(markup);
+        }
+
+        [WorkItem(25084, "https://github.com/dotnet/roslyn/issues/25084")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task SwitchCaseWhenClause1()
+        {
+            var markup = @"
+class C
+{
+    void M(bool x)
+    {
+        switch (1)
+        {
+            case 1 when $$
+";
+
+            await VerifyItemExistsAsync(markup, "x");
+        }
+
+        [WorkItem(25084, "https://github.com/dotnet/roslyn/issues/25084")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task SwitchCaseWhenClause2()
+        {
+            var markup = @"
+class C
+{
+    void M(bool x)
+    {
+        switch (1)
+        {
+            case int i when $$
 ";
 
             await VerifyItemExistsAsync(markup, "x");
@@ -8471,6 +9226,412 @@ class Class2
         {
             await VerifyNoItemsExistAsync("#!$$", sourceCodeKind: SourceCodeKind.Script);
             await VerifyNoItemsExistAsync("#! S$$", sourceCodeKind: SourceCodeKind.Script, usePreviousCharAsTrigger: true);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task CompoundNameTargetTypePreselection()
+        {
+            var markup = @"
+class Class1
+{
+    void goo()
+    {
+        int x = 3;
+        string y = x.$$
+    }
+}";
+            await VerifyItemExistsAsync(markup, "ToString", matchPriority: SymbolMatchPriority.PreferEventOrMethod);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TargetTypeInCollectionInitializer1()
+        {
+            var markup = @"
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        int z;
+        string q;
+        List<int> x = new List<int>() { $$  }
+    }
+}";
+            await VerifyItemExistsAsync(markup, "z", matchPriority: SymbolMatchPriority.PreferLocalOrParameterOrRangeVariable);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TargetTypeInCollectionInitializer2()
+        {
+            var markup = @"
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        int z;
+        string q;
+        List<int> x = new List<int>() { 1, $$  }
+    }
+}";
+            await VerifyItemExistsAsync(markup, "z", matchPriority: SymbolMatchPriority.PreferLocalOrParameterOrRangeVariable);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TargeTypeInObjectInitializer1()
+        {
+            var markup = @"
+class C
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+
+    void goo()
+    {
+        int i;
+        var c = new C() { X = $$ }
+    }
+}";
+            await VerifyItemExistsAsync(markup, "i", matchPriority: SymbolMatchPriority.PreferLocalOrParameterOrRangeVariable);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TargeTypeInObjectInitializer2()
+        {
+            var markup = @"
+class C
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+
+    void goo()
+    {
+        int i;
+        var c = new C() { X = 1, Y = $$ }
+    }
+}";
+            await VerifyItemExistsAsync(markup, "i", matchPriority: SymbolMatchPriority.PreferLocalOrParameterOrRangeVariable);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleElements()
+        {
+            var markup = @"
+class C
+{
+    void goo()
+    {
+        var t = (Alice: 1, Item2: 2, ITEM3: 3, 4, 5, 6, 7, 8, Bob: 9);
+        t.$$
+    }
+}" + TestResources.NetFX.ValueTuple.tuplelib_cs;
+
+            await VerifyItemExistsAsync(markup, "Alice");
+            await VerifyItemExistsAsync(markup, "Bob");
+            await VerifyItemExistsAsync(markup, "CompareTo");
+            await VerifyItemExistsAsync(markup, "Equals");
+            await VerifyItemExistsAsync(markup, "GetHashCode");
+            await VerifyItemExistsAsync(markup, "GetType");
+            await VerifyItemExistsAsync(markup, "Item2");
+            await VerifyItemExistsAsync(markup, "ITEM3");
+            for (int i = 4; i <= 8; i++)
+            {
+                await VerifyItemExistsAsync(markup, "Item" + i);
+            }
+            await VerifyItemExistsAsync(markup, "ToString");
+
+            await VerifyItemIsAbsentAsync(markup, "Item1");
+            await VerifyItemIsAbsentAsync(markup, "Item9");
+            await VerifyItemIsAbsentAsync(markup, "Rest");
+            await VerifyItemIsAbsentAsync(markup, "Item3");
+        }
+
+        [WorkItem(14546, "https://github.com/dotnet/roslyn/issues/14546")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleElementsCompletionOffMethodGroup()
+        {
+            var markup = @"
+class C
+{
+    void goo()
+    {
+        new object().ToString.$$
+    }
+}" + TestResources.NetFX.ValueTuple.tuplelib_cs;
+
+            // should not crash
+            await VerifyItemExistsAsync(markup, "ToString");            
+        }
+
+        [Fact]
+        [Trait(Traits.Feature, Traits.Features.Completion)]
+        [Test.Utilities.CompilerTrait(Test.Utilities.CompilerFeature.LocalFunctions)]
+        [WorkItem(13480, "https://github.com/dotnet/roslyn/issues/13480")]
+        public async Task NoCompletionInLocalFuncGenericParamList()
+        {
+            var markup = @"
+class C
+{
+    void M()
+    {
+        int Local<$$";
+
+            await VerifyNoItemsExistAsync(markup);
+        }
+
+        [Fact]
+        [Trait(Traits.Feature, Traits.Features.Completion)]
+        [Test.Utilities.CompilerTrait(Test.Utilities.CompilerFeature.LocalFunctions)]
+        [WorkItem(13480, "https://github.com/dotnet/roslyn/issues/13480")]
+        public async Task CompletionForAwaitWithoutAsync()
+        {
+            var markup = @"
+class C
+{
+    void M()
+    {
+        await Local<$$";
+
+            await VerifyAnyItemExistsAsync(markup);
+        }
+
+        [WorkItem(14127, "https://github.com/dotnet/roslyn/issues/14127")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleTypeAtMemberLevel1()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    ($$
+}", "C");
+        }
+
+        [WorkItem(14127, "https://github.com/dotnet/roslyn/issues/14127")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleTypeAtMemberLevel2()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    ($$)
+}", "C");
+        }
+
+        [WorkItem(14127, "https://github.com/dotnet/roslyn/issues/14127")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleTypeAtMemberLevel3()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    (C, $$
+}", "C");
+        }
+
+        [WorkItem(14127, "https://github.com/dotnet/roslyn/issues/14127")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleTypeAtMemberLevel4()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    (C, $$)
+}", "C");
+        }
+
+
+        [WorkItem(14127, "https://github.com/dotnet/roslyn/issues/14127")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleTypeInForeach()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    void M()
+    {
+        foreach ((C, $$
+    }
+}", "C");
+        }
+
+
+        [WorkItem(14127, "https://github.com/dotnet/roslyn/issues/14127")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleTypeInParameterList()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    void M((C, $$)
+    {
+    }
+}", "C");
+        }
+
+        [WorkItem(14127, "https://github.com/dotnet/roslyn/issues/14127")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task TupleTypeInNameOf()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    void M()
+    {
+        var x = nameof((C, $$
+    }
+}", "C");
+        }
+
+        [WorkItem(14163, "https://github.com/dotnet/roslyn/issues/14163")]
+        [Fact]
+        [Trait(Traits.Feature, Traits.Features.Completion)]
+        [Test.Utilities.CompilerTrait(Test.Utilities.CompilerFeature.LocalFunctions)]
+        public async Task LocalFunctionDescription()
+        {
+            await VerifyItemExistsAsync(@"
+class C
+{
+    void M()
+    {
+        void Local() { }
+        
+        $$
+    }
+}", "Local", "void Local()");
+        }
+
+        [WorkItem(14163, "https://github.com/dotnet/roslyn/issues/14163")]
+        [Fact]
+        [Trait(Traits.Feature, Traits.Features.Completion)]
+        [Test.Utilities.CompilerTrait(Test.Utilities.CompilerFeature.LocalFunctions)]
+        public async Task LocalFunctionDescription2()
+        {
+            await VerifyItemExistsAsync(@"
+using System;
+class C
+{
+    class var { }
+    void M()
+    {
+        Action<int> Local(string x, ref var @class, params Func<int, string> f)
+        {
+            return () => 0;
+        }
+
+        $$
+    }
+}", "Local", "Action<int> Local(string x, ref var @class, params Func<int, string> f)");
+        }
+
+        [WorkItem(18359, "https://github.com/dotnet/roslyn/issues/18359")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public async Task EnumMemberAfterDot()
+        {
+            var markup =
+@"namespace ConsoleApplication253
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            M(E.$$)
+        }
+
+        static void M(E e) { }
+    }
+
+    enum E
+    {
+        A,
+        B,
+    }
+}
+";
+            // VerifyItemExistsAsync also tests with the item typed.
+            await VerifyItemExistsAsync(markup, "A");
+            await VerifyItemExistsAsync(markup, "B");
+        }
+
+        [WorkItem(8321, "https://github.com/dotnet/roslyn/issues/8321")]
+        [Fact, Trait(Traits.Feature, Traits.Features.KeywordRecommending)]
+        public async Task NotOnMethodGroup1()
+        {
+            var markup =
+@"namespace ConsoleApp
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Main.$$
+        }
+    }
+}
+";
+            await VerifyNoItemsExistAsync(markup);
+        }
+
+        [WorkItem(8321, "https://github.com/dotnet/roslyn/issues/8321")]
+        [Fact, Trait(Traits.Feature, Traits.Features.KeywordRecommending)]
+        public async Task NotOnMethodGroup2()
+        {
+            var markup =
+@"class C {
+    void M<T>() {M<C>.$$ }
+}
+";
+            await VerifyNoItemsExistAsync(markup);
+        }
+
+        [WorkItem(8321, "https://github.com/dotnet/roslyn/issues/8321")]
+        [Fact, Trait(Traits.Feature, Traits.Features.KeywordRecommending)]
+        public async Task NotOnMethodGroup3()
+        {
+            var markup =
+@"class C {
+    void M() {M.$$}
+}
+";
+            await VerifyNoItemsExistAsync(markup);
+        }
+
+        [WorkItem(420697, "https://devdiv.visualstudio.com/DefaultCollection/DevDiv/_workitems?id=420697&_a=edit")]
+        [Fact(Skip = "https://github.com/dotnet/roslyn/issues/21766"), Trait(Traits.Feature, Traits.Features.KeywordRecommending)]
+        public async Task DoNotCrashInExtensionMethoWithExpressionBodiedMember()
+        {
+            var markup =
+@"public static class Extensions { public static T Get<T>(this object o) => $$}
+";
+            await VerifyItemExistsAsync(markup, "o");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.KeywordRecommending)]
+        public async Task EnumConstraint()
+        {
+            var markup =
+@"public class X<T> where T : System.$$
+";
+            await VerifyItemExistsAsync(markup, "Enum");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.KeywordRecommending)]
+        public async Task DelegateConstraint()
+        {
+            var markup =
+@"public class X<T> where T : System.$$
+";
+            await VerifyItemExistsAsync(markup, "Delegate");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.KeywordRecommending)]
+        public async Task MulticastDelegateConstraint()
+        {
+            var markup =
+@"public class X<T> where T : System.$$
+";
+            await VerifyItemExistsAsync(markup, "MulticastDelegate");
         }
     }
 }

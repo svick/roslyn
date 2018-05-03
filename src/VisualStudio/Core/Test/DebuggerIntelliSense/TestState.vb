@@ -1,4 +1,4 @@
-' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+﻿' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
 Imports System.Threading
 Imports System.Threading.Tasks
@@ -6,14 +6,17 @@ Imports Microsoft.CodeAnalysis
 Imports Microsoft.CodeAnalysis.Completion
 Imports Microsoft.CodeAnalysis.Editor
 Imports Microsoft.CodeAnalysis.Editor.CommandHandlers
-Imports Microsoft.CodeAnalysis.Editor.Commands
 Imports Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.Completion
 Imports Microsoft.CodeAnalysis.Editor.UnitTests
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.IntelliSense
 Imports Microsoft.CodeAnalysis.Host.Mef
 Imports Microsoft.CodeAnalysis.Shared.Extensions
 Imports Microsoft.CodeAnalysis.Shared.TestHooks
+Imports Microsoft.CodeAnalysis.SignatureHelp
+Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Microsoft.CodeAnalysis.Text.Shared.Extensions
+Imports Microsoft.VisualStudio.Commanding
+Imports Microsoft.VisualStudio.Language.Intellisense
 Imports Microsoft.VisualStudio.LanguageServices.CSharp.LanguageService
 Imports Microsoft.VisualStudio.LanguageServices.Implementation.DebuggerIntelliSense
 Imports Microsoft.VisualStudio.LanguageServices.Implementation.Extensions
@@ -21,6 +24,8 @@ Imports Microsoft.VisualStudio.LanguageServices.VisualBasic
 Imports Microsoft.VisualStudio.Text
 Imports Microsoft.VisualStudio.Text.BraceCompletion
 Imports Microsoft.VisualStudio.Text.Editor
+Imports Microsoft.VisualStudio.Text.Editor.Commanding
+Imports Microsoft.VisualStudio.Text.Editor.Commanding.Commands
 Imports Microsoft.VisualStudio.Text.Operations
 Imports Microsoft.VisualStudio.TextManager
 
@@ -28,7 +33,6 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
 
     Friend Class TestState
         Inherits AbstractCommandHandlerTestState
-        Implements IIntelliSenseTestState
 
         Friend ReadOnly AsyncCompletionService As IAsyncCompletionService
         Friend ReadOnly SignatureHelpCommandHandler As SignatureHelpCommandHandler
@@ -36,50 +40,47 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
         Friend ReadOnly IntelliSenseCommandHandler As IntelliSenseCommandHandler
 
         Private _context As AbstractDebuggerIntelliSenseContext
+        Private ReadOnly SessionTestState As IIntelliSenseTestState
 
-        Friend Property CurrentSignatureHelpPresenterSession As TestSignatureHelpPresenterSession Implements IIntelliSenseTestState.CurrentSignatureHelpPresenterSession
-        Friend Property CurrentCompletionPresenterSession As TestCompletionPresenterSession Implements IIntelliSenseTestState.CurrentCompletionPresenterSession
+        Friend ReadOnly Property CurrentSignatureHelpPresenterSession As TestSignatureHelpPresenterSession
+            Get
+                Return SessionTestState.CurrentSignatureHelpPresenterSession
+            End Get
+        End Property
+
+        Friend ReadOnly Property CurrentCompletionPresenterSession As TestCompletionPresenterSession
+            Get
+                Return SessionTestState.CurrentCompletionPresenterSession
+            End Get
+        End Property
 
         Private Sub New(workspaceElement As XElement,
-                        extraCompletionProviders As IEnumerable(Of Lazy(Of CompletionListProvider, OrderableLanguageAndRoleMetadata)),
-                        extraSignatureHelpProviders As IEnumerable(Of Lazy(Of ISignatureHelpProvider, OrderableLanguageMetadata)),
+                        extraCompletionProviders As IEnumerable(Of Lazy(Of CompletionProvider, OrderableLanguageAndRoleMetadata)),
                         isImmediateWindow As Boolean)
 
             MyBase.New(
                 workspaceElement,
-                exportProvider:=MinimalTestExportProvider.CreateExportProvider(VisualStudioTestExportProvider.PartCatalog.WithParts(
-                            GetType(CompletionWaiter),
-                            GetType(SignatureHelpWaiter))),
+                excludedTypes:=CombineExcludedTypes(),
+                extraParts:=ExportProviderCache.CreateTypeCatalog(CombineExtraTypes()),
                 workspaceKind:=WorkspaceKind.Debugger)
 
             Dim languageServices = Me.Workspace.CurrentSolution.Projects.First().LanguageServices
             Dim language = languageServices.Language
 
-            Dim completionProviders = GetExports(Of CompletionListProvider, OrderableLanguageAndRoleMetadata)() _
-                .Where(Function(f) f.Metadata.Language = language) _
-                .Concat(extraCompletionProviders) _
-                .ToList()
+            If extraCompletionProviders IsNot Nothing Then
+                Dim completionService = DirectCast(languageServices.GetService(Of CompletionService), CommonCompletionService)
+                completionService.SetTestProviders(extraCompletionProviders.Select(Function(lz) lz.Value).ToList())
+            End If
 
-            Me.AsyncCompletionService = New AsyncCompletionService(
-                GetService(Of IEditorOperationsFactoryService)(),
-                UndoHistoryRegistry,
-                GetService(Of IInlineRenameService)(),
-                New TestCompletionPresenter(Me),
-                GetExports(Of IAsynchronousOperationListener, FeatureMetadata)(),
-                completionProviders,
-                GetExports(Of IBraceCompletionSessionProvider, BraceCompletionMetadata)())
+            Me.SessionTestState = GetExportedValue(Of IIntelliSenseTestState)()
 
-            Me.CompletionCommandHandler = New CompletionCommandHandler(Me.AsyncCompletionService)
+            Me.AsyncCompletionService = Workspace.GetService(Of IAsyncCompletionService)
 
-            Me.SignatureHelpCommandHandler = New SignatureHelpCommandHandler(
-                GetService(Of IInlineRenameService)(),
-                New TestSignatureHelpPresenter(Me),
-                GetExports(Of ISignatureHelpProvider, OrderableLanguageMetadata)().Concat(extraSignatureHelpProviders),
-                GetExports(Of IAsynchronousOperationListener, FeatureMetadata)())
+            Me.CompletionCommandHandler = Workspace.GetService(Of CompletionCommandHandler)
 
-            Me.IntelliSenseCommandHandler = New IntelliSenseCommandHandler(CompletionCommandHandler, SignatureHelpCommandHandler, Nothing)
+            Me.SignatureHelpCommandHandler = Workspace.GetService(Of SignatureHelpCommandHandler)
 
-            languageServices.GetService(Of ICompletionService).ClearMRUCache()
+            Me.IntelliSenseCommandHandler = Workspace.GetService(Of IntelliSenseCommandHandler)
 
             Dim spanDocument = Workspace.Documents.First(Function(x) x.SelectedSpans.Any())
             Dim statementSpan = spanDocument.SelectedSpans.First()
@@ -107,6 +108,21 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
             _context.TryInitialize()
         End Sub
 
+        Private Shared Function CombineExcludedTypes() As IList(Of Type)
+            Return New List(Of Type) From {
+                GetType(IIntelliSensePresenter(Of ICompletionPresenterSession, ICompletionSession)),
+                GetType(IIntelliSensePresenter(Of ISignatureHelpPresenterSession, ISignatureHelpSession))
+            }
+        End Function
+
+        Private Shared Function CombineExtraTypes() As IList(Of Type)
+            Return New List(Of Type) From {
+                GetType(TestCompletionPresenter),
+                GetType(TestSignatureHelpPresenter),
+                GetType(IntelliSenseTestState)
+            }
+        End Function
+
         Public Overrides ReadOnly Property TextView As ITextView
             Get
                 Return _context.DebuggerTextView
@@ -128,74 +144,77 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
         Public Shared Function CreateVisualBasicTestState(
                 documentElement As XElement,
                 isImmediateWindow As Boolean,
-                Optional extraCompletionProviders As CompletionListProvider() = Nothing,
+                Optional extraCompletionProviders As CompletionProvider() = Nothing,
                 Optional extraSignatureHelpProviders As ISignatureHelpProvider() = Nothing) As TestState
 
             Return New TestState(documentElement,
                 CreateLazyProviders(extraCompletionProviders, LanguageNames.VisualBasic, roles:=Nothing),
-                CreateLazyProviders(extraSignatureHelpProviders, LanguageNames.VisualBasic),
                 isImmediateWindow)
         End Function
 
         Public Shared Function CreateCSharpTestState(
                 workspaceElement As XElement,
                 isImmediateWindow As Boolean,
-                Optional extraCompletionProviders As CompletionListProvider() = Nothing,
+                Optional extraCompletionProviders As CompletionProvider() = Nothing,
                 Optional extraSignatureHelpProviders As ISignatureHelpProvider() = Nothing) As TestState
 
             Return New TestState(
                 workspaceElement,
                 CreateLazyProviders(extraCompletionProviders, LanguageNames.CSharp, roles:=Nothing),
-                CreateLazyProviders(extraSignatureHelpProviders, LanguageNames.CSharp),
                 isImmediateWindow)
         End Function
 
 #Region "IntelliSense Operations"
 
         Public Overloads Sub SendEscape()
-            MyBase.SendEscape(Sub(a, n) IntelliSenseCommandHandler.ExecuteCommand(a, n), Sub() Return)
+            MyBase.SendEscape(Sub(a, n, c) IntelliSenseCommandHandler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
         Public Overloads Sub SendDownKey()
-            MyBase.SendDownKey(Sub(a, n) IntelliSenseCommandHandler.ExecuteCommand(a, n), Sub() Return)
+            MyBase.SendDownKey(Sub(a, n, c) IntelliSenseCommandHandler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
         Public Overloads Sub SendUpKey()
-            MyBase.SendUpKey(Sub(a, n) IntelliSenseCommandHandler.ExecuteCommand(a, n), Sub() Return)
+            MyBase.SendUpKey(Sub(a, n, c) IntelliSenseCommandHandler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
 #End Region
 
 #Region "Completion Operations"
         Public Overloads Sub SendTab()
-            Dim handler = DirectCast(CompletionCommandHandler, ICommandHandler(Of TabKeyCommandArgs))
-            MyBase.SendTab(Sub(a, n) handler.ExecuteCommand(a, n), Sub() EditorOperations.InsertText(vbTab))
+            Dim handler = DirectCast(CompletionCommandHandler, IChainedCommandHandler(Of TabKeyCommandArgs))
+            MyBase.SendTab(Sub(a, n, c) handler.ExecuteCommand(a, n, c), Sub() EditorOperations.InsertText(vbTab))
         End Sub
 
         Public Overloads Sub SendReturn()
-            Dim handler = DirectCast(CompletionCommandHandler, ICommandHandler(Of ReturnKeyCommandArgs))
-            MyBase.SendReturn(Sub(a, n) handler.ExecuteCommand(a, n), Sub() EditorOperations.InsertNewLine())
+            Dim handler = DirectCast(CompletionCommandHandler, IChainedCommandHandler(Of ReturnKeyCommandArgs))
+            MyBase.SendReturn(Sub(a, n, c) handler.ExecuteCommand(a, n, c), Sub() EditorOperations.InsertNewLine())
             Me._context.RebuildSpans()
         End Sub
 
         Public Overloads Sub SendPageUp()
-            Dim handler = DirectCast(CompletionCommandHandler, ICommandHandler(Of PageUpKeyCommandArgs))
-            MyBase.SendPageUp(Sub(a, n) handler.ExecuteCommand(a, n), Sub() Return)
+            Dim handler = DirectCast(CompletionCommandHandler, IChainedCommandHandler(Of PageUpKeyCommandArgs))
+            MyBase.SendPageUp(Sub(a, n, c) handler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
         Public Overloads Sub SendInvokeCompletionList()
-            Dim handler = DirectCast(CompletionCommandHandler, ICommandHandler(Of InvokeCompletionListCommandArgs))
-            MyBase.SendInvokeCompletionList(Sub(a, n) handler.ExecuteCommand(a, n), Sub() Return)
+            Dim handler = DirectCast(CompletionCommandHandler, IChainedCommandHandler(Of InvokeCompletionListCommandArgs))
+            MyBase.SendInvokeCompletionList(Sub(a, n, c) handler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
         Public Overloads Sub SendCommitUniqueCompletionListItem()
-            Dim handler = DirectCast(CompletionCommandHandler, ICommandHandler(Of CommitUniqueCompletionListItemCommandArgs))
-            MyBase.SendCommitUniqueCompletionListItem(Sub(a, n) handler.ExecuteCommand(a, n), Sub() Return)
+            Dim handler = DirectCast(CompletionCommandHandler, IChainedCommandHandler(Of CommitUniqueCompletionListItemCommandArgs))
+            MyBase.SendCommitUniqueCompletionListItem(Sub(a, n, c) handler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
         Public Overloads Sub SendSelectCompletionItemThroughPresenterSession(item As CompletionItem)
             AssertNoAsynchronousOperationsRunning()
             CurrentCompletionPresenterSession.SetSelectedItem(item)
+        End Sub
+
+        Public Overloads Sub SendToggleCompletionMode()
+            Dim handler = DirectCast(CompletionCommandHandler, IChainedCommandHandler(Of ToggleCompletionModeCommandArgs))
+            MyBase.SendToggleCompletionMode(Sub(a, n, c) handler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
         Public Async Function AssertNoCompletionSession(Optional block As Boolean = True) As Task
@@ -266,7 +285,10 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
 #End If
 
             If description IsNot Nothing Then
-                Assert.Equal(description, (Await Me.CurrentCompletionPresenterSession.SelectedItem.GetDescriptionAsync()).GetFullText())
+                Dim document = Me.Workspace.CurrentSolution.Projects.First().Documents.First()
+                Dim service = CompletionService.GetService(document)
+                Dim itemDescription = Await service.GetDescriptionAsync(document, Me.CurrentCompletionPresenterSession.SelectedItem)
+                Assert.Equal(description, itemDescription.Text)
             End If
         End Function
 
@@ -274,23 +296,23 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
 
 #Region "Signature Help and Completion Operations"
 
-        Private Sub ExecuteCommand(Of TCommandArgs As CommandArgs)(args As TCommandArgs, finalHandler As Action)
-            Dim sigHelpHandler = DirectCast(SignatureHelpCommandHandler, ICommandHandler(Of TCommandArgs))
-            Dim compHandler = DirectCast(DirectCast(CompletionCommandHandler, Object), ICommandHandler(Of TCommandArgs))
+        Private Sub ExecuteCommand(Of TCommandArgs As EditorCommandArgs)(args As TCommandArgs, finalHandler As Action, context As CommandExecutionContext)
+            Dim sigHelpHandler = DirectCast(SignatureHelpCommandHandler, IChainedCommandHandler(Of TCommandArgs))
+            Dim compHandler = DirectCast(DirectCast(CompletionCommandHandler, Object), IChainedCommandHandler(Of TCommandArgs))
 
-            sigHelpHandler.ExecuteCommand(args, Sub() compHandler.ExecuteCommand(args, finalHandler))
+            sigHelpHandler.ExecuteCommand(args, Sub() compHandler.ExecuteCommand(args, finalHandler, context), context)
         End Sub
 
         Public Overloads Sub SendTypeChars(typeChars As String)
-            MyBase.SendTypeChars(typeChars, Sub(a, n) ExecuteCommand(a, n))
+            MyBase.SendTypeChars(typeChars, Sub(a, n, c) ExecuteCommand(a, n, c))
         End Sub
 #End Region
 
 #Region "Signature Help Operations"
 
         Public Overloads Sub SendInvokeSignatureHelp()
-            Dim handler = DirectCast(SignatureHelpCommandHandler, ICommandHandler(Of InvokeSignatureHelpCommandArgs))
-            MyBase.SendInvokeSignatureHelp(Sub(a, n) handler.ExecuteCommand(a, n), Sub() Return)
+            Dim handler = DirectCast(SignatureHelpCommandHandler, IChainedCommandHandler(Of InvokeSignatureHelpCommandArgs))
+            MyBase.SendInvokeSignatureHelp(Sub(a, n, c) handler.ExecuteCommand(a, n, c), Sub() Return)
         End Sub
 
         Public Sub SendSelectSignatureHelpItemThroughPresenterSession(item As SignatureHelpItem)
@@ -325,7 +347,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
                 suffix)
         End Function
 
-        Private Function GetDisplayText(parts As IEnumerable(Of SymbolDisplayPart)) As String
+        Private Function GetDisplayText(parts As IEnumerable(Of TaggedText)) As String
             Return String.Join(String.Empty, parts.Select(Function(p) p.ToString()))
         End Function
 
