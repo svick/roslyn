@@ -21,7 +21,7 @@ namespace Microsoft.CodeAnalysis
     /// </summary>
     internal readonly struct IReferenceOrISignatureEquivalent : IEquatable<IReferenceOrISignatureEquivalent>
     {
-        private readonly object? _item;
+        private readonly object _item;
 
         public IReferenceOrISignatureEquivalent(IReference item)
         {
@@ -43,13 +43,9 @@ namespace Microsoft.CodeAnalysis
         public bool Equals(IReferenceOrISignatureEquivalent other)
         {
             // Fast inlinable ReferenceEquals
-            object? x = _item;
-            object? y = other._item;
-            if (x is null)
-            {
-                return y is null;
-            }
-            else if (ReferenceEquals(x, y))
+            object x = _item;
+            object y = other._item;
+            if (ReferenceEquals(x, y))
             {
                 return true;
             }
@@ -57,7 +53,7 @@ namespace Microsoft.CodeAnalysis
             return EqualsSlow(x, y);
         }
 
-        private static bool EqualsSlow(object x, object? y)
+        private static bool EqualsSlow(object x, object y)
         {
             if (x is ISymbolInternal sx && y is ISymbolInternal sy)
             {
